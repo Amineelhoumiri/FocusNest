@@ -1,0 +1,1912 @@
+openapi: 3.0.4
+info:
+  title: FocusNest API
+  description: |-
+    FocusNest is a neuro-cognitive productivity application that combines task management, 
+    focus sessions, AI-powered coaching, and personalized soundscapes to help users achieve 
+    deep work states.
+    
+    **Security Architecture:**
+    - All sensitive fields (emails, task names, chat content, Spotify tokens) are encrypted 
+      at rest using AWS KMS Application Layer Encryption (ALE)
+    - API handles plaintext; encryption/decryption occurs at the service layer before DB persistence
+    - JWT Bearer tokens required for all authenticated endpoints
+    
+    **Key Features:**
+    - Kanban-style task management with energy-level filtering
+    - 5-minute Micro-Timer sessions with No-Shame Reflection
+    - AI chat sessions with GPT-4 integration
+    - Spotify integration for focus soundscapes
+    - GDPR-compliant data deletion with CASCADE rules
+    
+    **Compliance:**
+    - GDPR Article 17 (Right to Erasure) via `/user/nuke` endpoint
+    - Consent audit trail for core, AI, and Spotify data processing
+    - IP address hashing for OpenAI usage logs
+  termsOfService: 'https://focusnest.app/terms'
+  contact:
+    email: medamineelhoumiri@gmail.com
+    name: FocusNest Engineering Team
+  license:
+    name: MIT
+    url: 'https://opensource.org/licenses/MIT'
+  version: 1.0.0
+externalDocs:
+  description: FocusNest Developer Documentation
+  url: 'https://docs.focusnest.app'
+servers:
+  - description: Production API
+    url: 'https://api.focusnest.app/v1'
+  - description: Staging Environment
+    url: 'https://api-staging.focusnest.app/v1'
+  - description: SwaggerHub API Auto Mocking
+    url: 'https://virtserver.swaggerhub.com/uniwork-41e/FocusNestapi/1.0.0'
+tags:
+  - name: Identity & Accounts
+    description: User authentication, profile management, and account lifecycle
+  - name: Tasks & Planning
+    description: Kanban board operations for tasks and subtasks with energy-level filtering
+  - name: Focus Sessions
+    description: 5-minute Micro-Timer sessions with reflection logging and concurrency control
+  - name: AI Chat
+    description: GPT-4 powered coaching sessions with encrypted message history
+  - name: Spotify Integration
+    description: OAuth token management and refresh for personalized soundscapes
+  - name: Admin & Auditing
+    description: System prompt management, usage tracking, and consent audit logs
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Identity & Accounts
+      summary: Register new user
+      description: Create a new user account with encrypted email and hashed password
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - full_name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: 'Email address (encrypted at rest using AWS KMS ALE)'
+                  example: 'user@example.com'
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  description: 'Password (hashed with bcrypt before storage)'
+                  example: 'SecureP@ssw0rd!'
+                full_name:
+                  type: string
+                  example: 'Jane Doe'
+                date_of_birth:
+                  type: string
+                  format: date
+                  description: 'Date of birth (encrypted at rest)'
+                  example: '1995-06-15'
+                address:
+                  type: string
+                  example: '123 Focus Lane, London, UK'
+      responses:
+        '201':
+          description: User successfully registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  access_token:
+                    type: string
+                    description: 'JWT Bearer token'
+                  refresh_token:
+                    type: string
+                  expires_in:
+                    type: integer
+                    example: 3600
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/login:
+    post:
+      tags:
+        - Identity & Accounts
+      summary: User login
+      description: Authenticate user and issue JWT tokens
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  access_token:
+                    type: string
+                  refresh_token:
+                    type: string
+                  expires_in:
+                    type: integer
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/refresh:
+    post:
+      tags:
+        - Identity & Accounts
+      summary: Refresh access token
+      description: Generate new access token using refresh token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  expires_in:
+                    type: integer
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/me:
+    get:
+      tags:
+        - Identity & Accounts
+      summary: Get current user profile
+      description: Retrieve authenticated user's profile information
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - Identity & Accounts
+      summary: Update user profile
+      description: Modify user profile fields
+      operationId: updateCurrentUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                date_of_birth:
+                  type: string
+                  format: date
+                address:
+                  type: string
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/{user_id}:
+    get:
+      tags:
+        - Identity & Accounts
+      summary: Get user by ID (Admin only)
+      description: Retrieve any user's profile (admin privilege required)
+      operationId: getUserById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/nuke:
+    delete:
+      tags:
+        - Identity & Accounts
+      summary: GDPR Right to Erasure (User Nuke)
+      description: |-
+        **CRITICAL OPERATION - IRREVERSIBLE**
+        
+        This endpoint permanently deletes all user data across the entire system via database CASCADE rules:
+        - USER record deletion triggers ON DELETE CASCADE for:
+          - ACCOUNT (email, password)
+          - TASK and SUBTASK records
+          - SESSION records (focus history)
+          - CHAT_SESSIONS and CHAT_MESSAGES (AI conversation history)
+          - SPOTIFY_ACCOUNTS (OAuth tokens)
+          - OPENAI_USAGE (cost logs)
+          - CONSENT_AUDIT_LOG (consent history)
+        
+        This endpoint implements GDPR Article 17 (Right to Erasure).
+        Users must confirm deletion by providing their password.
+      operationId: nukeUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password_confirmation
+              properties:
+                password_confirmation:
+                  type: string
+                  format: password
+                  description: User must re-enter password to confirm deletion
+      responses:
+        '204':
+          description: User and all associated data permanently deleted
+        '401':
+          description: Invalid password confirmation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Action forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tasks:
+    get:
+      tags:
+        - Tasks & Planning
+      summary: List all tasks for current user
+      description: Retrieve user's tasks with optional filtering by status and energy level
+      operationId: listTasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Backlog, Ready, Doing, Done]
+        - name: energy_level
+          in: query
+          schema:
+            type: string
+            enum: [High, Low]
+      responses:
+        '200':
+          description: Tasks retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Tasks & Planning
+      summary: Create new task
+      description: |-
+        Add a new task to the Kanban board.
+        
+        **Encryption Note:** `task_name` is sent as plaintext in the request but 
+        encrypted using AWS KMS ALE before being stored .
+      operationId: createTask
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_name
+                - status
+                - energy_level
+              properties:
+                task_name:
+                  type: string
+                  description: 'Plaintext task name (encrypted at rest via AWS KMS ALE)'
+                  example: 'Complete Q1 financial report'
+                status:
+                  type: string
+                  enum: [Backlog, Ready, Doing, Done]
+                  default: Backlog
+                energy_level:
+                  type: string
+                  enum: [High, Low]
+                  description: 'Energy level required to complete this task'
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /tasks/{task_id}:
+    get:
+      tags:
+        - Tasks & Planning
+      summary: Get task by ID
+      description: Retrieve a specific task with decrypted task_name
+      operationId: getTaskById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Task found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - Tasks & Planning
+      summary: Update task
+      description: Modify task properties (status, energy level, or name)
+      operationId: updateTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_name:
+                  type: string
+                status:
+                  type: string
+                  enum: [Backlog, Ready, Doing, Done]
+                energy_level:
+                  type: string
+                  enum: [High, Low]
+      responses:
+        '200':
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Tasks & Planning
+      summary: Delete task
+      description: Permanently delete a task and all associated subtasks (CASCADE)
+      operationId: deleteTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Task deleted
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tasks/{task_id}/subtasks:
+    get:
+      tags:
+        - Tasks & Planning
+      summary: List subtasks for a task
+      description: Retrieve all subtasks belonging to a parent task
+      operationId: listSubtasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subtasks retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Subtask'
+        '404':
+          description: Parent task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Tasks & Planning
+      summary: Create subtask
+      description: Add a subtask to a parent task
+      operationId: createSubtask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - subtask_name
+              properties:
+                subtask_name:
+                  type: string
+                  description: 'Plaintext subtask name (encrypted at rest via AWS KMS ALE)'
+                  example: 'Gather revenue data from Q1'
+                status:
+                  type: string
+                  default: 'pending'
+                energy_level:
+                  type: string
+                  example: 'High'
+                is_approved:
+                  type: boolean
+                  default: false
+      responses:
+        '201':
+          description: Subtask created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subtask'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Parent task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /subtasks/{subtask_id}:
+    get:
+      tags:
+        - Tasks & Planning
+      summary: Get subtask by ID
+      description: Retrieve a specific subtask
+      operationId: getSubtaskById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subtask_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subtask found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subtask'
+        '404':
+          description: Subtask not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+        - Tasks & Planning
+      summary: Update subtask
+      description: Modify subtask properties
+      operationId: updateSubtask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subtask_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subtask_name:
+                  type: string
+                status:
+                  type: string
+                energy_level:
+                  type: string
+                is_approved:
+                  type: boolean
+      responses:
+        '200':
+          description: Subtask updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subtask'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Subtask not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Tasks & Planning
+      summary: Delete subtask
+      description: Permanently delete a subtask
+      operationId: deleteSubtask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subtask_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Subtask deleted
+        '404':
+          description: Subtask not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /sessions:
+    get:
+      tags:
+        - Focus Sessions
+      summary: List focus sessions
+      description: Retrieve user's session history with optional filtering
+      operationId: listSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+          description: Filter by active/completed sessions
+        - name: task_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter sessions by task
+      responses:
+        '200':
+          description: Sessions retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /sessions/start:
+    post:
+      tags:
+        - Focus Sessions
+      summary: Start 5-minute Micro-Timer session
+      description: |-
+        Begin a new focus session tied to a specific task.
+        
+        **Concurrency Guard:** Only one active session per user is allowed at a time.
+        If the user already has an active session, this endpoint returns `409 Conflict`.
+        
+        The session remains active until explicitly ended via `/sessions/{session_id}/end`.
+      operationId: startSession
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+              properties:
+                task_id:
+                  type: string
+                  format: uuid
+                  description: Task to focus on during this session
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          description: Invalid task_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |-
+            **Conflict - Active session already exists**
+            
+            User already has an active focus session. Only one session can be active 
+            at a time to enforce single-task focus. End the current session before 
+            starting a new one.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'ACTIVE_SESSION_EXISTS'
+                  message:
+                    type: string
+                    example: 'You already have an active session. Please end it before starting a new one.'
+                  active_session_id:
+                    type: string
+                    format: uuid
+                    description: ID of the currently active session
+  /sessions/{session_id}/end:
+    post:
+      tags:
+        - Focus Sessions
+      summary: End session with optional No-Shame Reflection
+      description: |-
+        Mark a session as complete and optionally log a reflection.
+        
+        **No-Shame Reflection Logic:**
+        - Users can log reflections for distraction, low energy, or external interruptions
+        - Reflection content is encrypted at rest using AWS KMS ALE
+        - `outcome` field captures success/partial/incomplete status
+      operationId: endSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                outcome:
+                  type: string
+                  enum: [success, partial, incomplete]
+                  description: Session completion status
+                  default: success
+                reflection_type:
+                  type: string
+                  enum: [Distraction, Low Energy, External]
+                  description: Type of reflection (optional)
+                reflection_content:
+                  type: string
+                  description: |-
+                    No-Shame reflection notes (plaintext sent, encrypted at rest via AWS KMS ALE).
+                    Example: "Got distracted by Slack notifications - need to enable DND mode"
+      responses:
+        '200':
+          description: Session ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Session already ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /sessions/{session_id}:
+    get:
+      tags:
+        - Focus Sessions
+      summary: Get session by ID
+      description: Retrieve session details including decrypted reflection content
+      operationId: getSessionById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /chat/sessions:
+    get:
+      tags:
+        - AI Chat
+      summary: List chat sessions
+      description: Retrieve user's AI coaching session history
+      operationId: listChatSessions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Chat sessions retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatSession'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - AI Chat
+      summary: Start new chat session
+      description: Initialize a new AI coaching conversation
+      operationId: createChatSession
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Chat session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /chat/sessions/{chat_session_id}:
+    get:
+      tags:
+        - AI Chat
+      summary: Get chat session by ID
+      description: Retrieve a specific chat session
+      operationId: getChatSessionById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chat_session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chat session found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSession'
+        '404':
+          description: Chat session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - AI Chat
+      summary: Delete chat session
+      description: Permanently delete a chat session and all associated messages (CASCADE)
+      operationId: deleteChatSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chat_session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Chat session deleted
+        '404':
+          description: Chat session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /chat/sessions/{chat_session_id}/messages:
+    get:
+      tags:
+        - AI Chat
+      summary: List messages in chat session
+      description: |-
+        Retrieve all messages in a chat session with decrypted content.
+        Messages are returned in chronological order.
+      operationId: listChatMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chat_session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatMessage'
+        '404':
+          description: Chat session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - AI Chat
+      summary: Send message in chat session
+      description: |-
+        Add a new message to the chat session and receive AI response.
+        
+        **Encryption:** Message content is encrypted at rest using AWS KMS ALE.
+        **Usage Tracking:** Token counts and costs are logged to OPENAI_USAGE table.
+      operationId: sendChatMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: chat_session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: 'User message (plaintext sent, encrypted at rest via AWS KMS ALE)'
+                  example: 'I am struggling to focus today. Any tips?'
+      responses:
+        '201':
+          description: Message sent and AI response received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_message:
+                    $ref: '#/components/schemas/ChatMessage'
+                  assistant_message:
+                    $ref: '#/components/schemas/ChatMessage'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Chat session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /spotify/auth/url:
+    get:
+      tags:
+        - Spotify Integration
+      summary: Get Spotify OAuth authorization URL
+      description: Generate authorization URL for Spotify OAuth flow
+      operationId: getSpotifyAuthUrl
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authorization URL generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_url:
+                    type: string
+                    format: uri
+                    example: 'https://accounts.spotify.com/authorize?client_id=...'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /spotify/callback:
+    post:
+      tags:
+        - Spotify Integration
+      summary: Handle Spotify OAuth callback
+      description: |-
+        Exchange authorization code for access/refresh tokens.
+        
+        **Encryption:** All tokens (access_token, refresh_token, spotify_user_id) are 
+        encrypted at rest using AWS KMS ALE before storage in SPOTIFY_ACCOUNTS table.
+      operationId: handleSpotifyCallback
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  description: Authorization code from Spotify
+      responses:
+        '201':
+          description: Spotify account linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpotifyAccount'
+        '400':
+          description: Invalid authorization code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /spotify/account:
+    get:
+      tags:
+        - Spotify Integration
+      summary: Get linked Spotify account
+      description: Retrieve user's linked Spotify account details (tokens are NOT exposed)
+      operationId: getSpotifyAccount
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Spotify account found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spotify_acc_id:
+                    type: string
+                    format: uuid
+                  spotify_user_id:
+                    type: string
+                    description: 'Decrypted Spotify user ID'
+                  expires_at:
+                    type: string
+                    format: date-time
+                  scopes:
+                    type: string
+                    example: 'user-read-playback-state user-modify-playback-state'
+        '404':
+          description: No Spotify account linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Spotify Integration
+      summary: Unlink Spotify account
+      description: Remove Spotify integration and delete all encrypted tokens
+      operationId: unlinkSpotifyAccount
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Spotify account unlinked
+        '404':
+          description: No Spotify account linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /spotify/refresh:
+    post:
+      tags:
+        - Spotify Integration
+      summary: Refresh Spotify access token
+      description: |-
+        Use refresh token to obtain a new access token.
+        
+        **Token Refresh Logic:**
+        1. Retrieve encrypted refresh_token from SPOTIFY_ACCOUNTS
+        2. Decrypt using AWS KMS
+        3. Exchange with Spotify API for new access_token
+        4. Encrypt and update access_token and expires_at in DB
+      operationId: refreshSpotifyToken
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: New expiration timestamp
+        '404':
+          description: No Spotify account linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Token refresh failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /admin/prompts:
+    get:
+      tags:
+        - Admin & Auditing
+      summary: List system prompts (Admin only)
+      description: Retrieve all system prompts used for AI coaching
+      operationId: listSystemPrompts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: System prompts retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SystemPrompt'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Admin & Auditing
+      summary: Create system prompt (Admin only)
+      description: Add a new system prompt
+      operationId: createSystemPrompt
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+                - prompt
+              properties:
+                key:
+                  type: string
+                  example: 'focus_coaching_v2'
+                prompt:
+                  type: string
+                  example: 'You are a productivity coach specializing in deep work...'
+      responses:
+        '201':
+          description: System prompt created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemPrompt'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Prompt key already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/prompts/{key}:
+    get:
+      tags:
+        - Admin & Auditing
+      summary: Get system prompt by key (Admin only)
+      description: Retrieve a specific system prompt
+      operationId: getSystemPromptByKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: System prompt found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemPrompt'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Prompt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+        - Admin & Auditing
+      summary: Update system prompt (Admin only)
+      description: Modify an existing system prompt
+      operationId: updateSystemPrompt
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prompt
+              properties:
+                prompt:
+                  type: string
+      responses:
+        '200':
+          description: System prompt updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemPrompt'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Prompt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Admin & Auditing
+      summary: Delete system prompt (Admin only)
+      description: Remove a system prompt
+      operationId: deleteSystemPrompt
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: System prompt deleted
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Prompt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /admin/usage:
+    get:
+      tags:
+        - Admin & Auditing
+      summary: Get OpenAI usage statistics (Admin only)
+      description: Retrieve aggregated token usage and costs
+      operationId: getOpenAIUsage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Usage statistics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_requests:
+                    type: integer
+                  total_prompt_tokens:
+                    type: integer
+                  total_completion_tokens:
+                    type: integer
+                  total_tokens:
+                    type: integer
+                  total_cost_usd:
+                    type: number
+                    format: decimal
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OpenAIUsage'
+        '403':
+          description: Forbidden - Admin only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /consent/history:
+    get:
+      tags:
+        - Admin & Auditing
+      summary: Get user's consent audit log
+      description: Retrieve complete consent history for the authenticated user
+      operationId: getConsentHistory
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Consent history retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConsentAuditLog'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /consent:
+    post:
+      tags:
+        - Admin & Auditing
+      summary: Update consent preferences
+      description: |-
+        Record user consent for data processing activities.
+        Each consent change is logged in CONSENT_AUDIT_LOG with timestamp and policy version.
+      operationId: updateConsent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - consent_type
+                - consent_value
+                - policy_version
+              properties:
+                consent_type:
+                  type: string
+                  enum: [core, ai, spotify]
+                  description: 'Type of consent being granted/revoked'
+                consent_value:
+                  type: boolean
+                  description: 'true = consent granted, false = consent revoked'
+                policy_version:
+                  type: string
+                  example: 'v2.1.0'
+                  description: 'Version of privacy policy user consented to'
+      responses:
+        '201':
+          description: Consent recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsentAuditLog'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        full_name:
+          type: string
+          example: 'John Pork'
+        date_of_birth:
+          type: string
+          format: date
+          description: 'Encrypted at rest'
+          example: '1995-06-15'
+        address:
+          type: string
+          example: '123 Focus Lane, London, UK'
+        is_admin:
+          type: boolean
+          example: false
+        last_login_at:
+          type: string
+          format: date-time
+          example: '2026-02-02T10:30:00Z'
+        is_consented_core:
+          type: boolean
+          example: true
+        is_consented_ai:
+          type: boolean
+          example: true
+        is_consented_spotify:
+          type: boolean
+          example: false
+      xml:
+        name: user
+    Task:
+      type: object
+      properties:
+        task_id:
+          type: string
+          format: uuid
+          example: '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        task_name:
+          type: string
+          description: 'Decrypted from encrypted_blob (stored using AWS KMS ALE)'
+          example: 'Complete Q1 financial report'
+        status:
+          type: string
+          enum: [Backlog, Ready, Doing, Done]
+          example: 'Doing'
+        energy_level:
+          type: string
+          enum: [High, Low]
+          example: 'High'
+      xml:
+        name: task
+    Subtask:
+      type: object
+      properties:
+        subtask_id:
+          type: string
+          format: uuid
+          example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+        task_id:
+          type: string
+          format: uuid
+          example: '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+        subtask_name:
+          type: string
+          description: 'Decrypted from encrypted_blob (stored using AWS KMS ALE)'
+          example: 'Gather revenue data from Q1'
+        status:
+          type: string
+          example: 'in_progress'
+        energy_level:
+          type: string
+          example: 'High'
+        is_approved:
+          type: boolean
+          example: false
+      xml:
+        name: subtask
+    Session:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          example: 'b2c3d4e5-f6a7-8901-bcde-f12345678901'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        task_id:
+          type: string
+          format: uuid
+          example: '7c9e6679-7425-40de-944b-e07fc1f90ae7'
+        start_time:
+          type: string
+          format: date-time
+          example: '2026-02-02T14:00:00Z'
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-02-02T14:05:00Z'
+        is_active:
+          type: boolean
+          description: 'Indexed field for fast active session lookups'
+          example: false
+        reflection_type:
+          type: string
+          enum: [Distraction, Low Energy, External]
+          nullable: true
+          example: 'Distraction'
+        reflection_content:
+          type: string
+          nullable: true
+          description: 'Decrypted from encrypted_blob (stored using AWS KMS ALE)'
+          example: 'Got distracted by Slack notifications'
+        outcome:
+          type: string
+          nullable: true
+          example: 'partial'
+      xml:
+        name: session
+    ChatSession:
+      type: object
+      properties:
+        chat_session_id:
+          type: string
+          format: uuid
+          example: 'c3d4e5f6-a7b8-9012-cdef-123456789012'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        created_at:
+          type: string
+          format: date-time
+          example: '2026-02-02T15:00:00Z'
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-02-02T15:30:00Z'
+      xml:
+        name: chat_session
+    ChatMessage:
+      type: object
+      properties:
+        chat_message_id:
+          type: string
+          format: uuid
+          example: 'd4e5f6a7-b8c9-0123-def1-234567890123'
+        chat_session_id:
+          type: string
+          format: uuid
+          example: 'c3d4e5f6-a7b8-9012-cdef-123456789012'
+        role:
+          type: string
+          enum: [user, assistant, system]
+          example: 'assistant'
+        content:
+          type: string
+          description: 'Decrypted from encrypted_blob (stored using AWS KMS ALE)'
+          example: 'It sounds like you might benefit from the Pomodoro Technique...'
+        token_count:
+          type: integer
+          example: 47
+      xml:
+        name: chat_message
+    SpotifyAccount:
+      type: object
+      properties:
+        spotify_acc_id:
+          type: string
+          format: uuid
+          example: 'e5f6a7b8-c9d0-1234-ef12-345678901234'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        spotify_user_id:
+          type: string
+          description: 'Decrypted from encrypted_blob (stored using AWS KMS ALE)'
+          example: 'spotify_user_123456'
+        expires_at:
+          type: string
+          format: date-time
+          example: '2026-02-02T16:00:00Z'
+        scopes:
+          type: string
+          example: 'user-read-playback-state user-modify-playback-state'
+      xml:
+        name: spotify_account
+    SystemPrompt:
+      type: object
+      properties:
+        key:
+          type: string
+          example: 'focus_coaching_v2'
+        prompt:
+          type: string
+          example: 'You are a productivity coach specializing in deep work and flow states...'
+      xml:
+        name: system_prompt
+    OpenAIUsage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 'f6a7b8c9-d0e1-2345-f123-456789012345'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        chat_session_id:
+          type: string
+          format: uuid
+          example: 'c3d4e5f6-a7b8-9012-cdef-123456789012'
+        model:
+          type: string
+          example: 'gpt-4'
+        prompt_tokens:
+          type: integer
+          example: 150
+        completion_tokens:
+          type: integer
+          example: 100
+        total_tokens:
+          type: integer
+          example: 250
+        cost_usd:
+          type: number
+          format: decimal
+          example: 0.0075
+        request_ip_hashed:
+          type: string
+          description: 'SHA-256 hash of request IP for privacy'
+          example: '5d41402abc4b2a76b9719d911017c592'
+      xml:
+        name: openai_usage
+    ConsentAuditLog:
+      type: object
+      properties:
+        consent_audit_id:
+          type: string
+          format: uuid
+          example: 'a7b8c9d0-e1f2-3456-a123-567890123456'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        consented_at:
+          type: string
+          format: date-time
+          example: '2026-02-02T12:00:00Z'
+        policy_version:
+          type: string
+          example: 'v2.1.0'
+        consent_type:
+          type: string
+          enum: [core, ai, spotify]
+          example: 'ai'
+        consent_value:
+          type: boolean
+          example: true
+      xml:
+        name: consent_audit_log
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: 'VALIDATION_ERROR'
+        message:
+          type: string
+          example: 'Invalid input parameters'
+        details:
+          type: object
+          nullable: true
+          description: 'Additional error context'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |-
+        JWT Bearer token authentication.
+        
+        **Token Structure:**
+        - Header: `Authorization: Bearer <token>`
+        - Payload contains: user_id, is_admin, exp (expiration)
+        - Tokens expire after 1 hour (3600 seconds)
+        - Use `/auth/refresh` endpoint to obtain new tokens
+        
+        **Admin Endpoints:**
+        Endpoints under `/admin/*` require `is_admin: true` in JWT payload.
+security:
+  - bearerAuth: []
