@@ -97,7 +97,11 @@ paths:
                   example: '123 Focus Lane, London, UK'
       responses:
         '201':
-          description: User successfully registered
+          description: |-
+            User successfully registered.
+            
+            **Token Delivery:** JWT access token and refresh token are delivered via HttpOnly cookies
+            and are NOT present in the response body. This prevents XSS attacks from stealing tokens.
           content:
             application/json:
               schema:
@@ -106,14 +110,6 @@ paths:
                   user_id:
                     type: string
                     format: uuid
-                  access_token:
-                    type: string
-                    description: 'JWT Bearer token'
-                  refresh_token:
-                    type: string
-                  expires_in:
-                    type: integer
-                    example: 3600
         '400':
           description: Invalid input data
           content:
@@ -131,7 +127,12 @@ paths:
       tags:
         - Identity & Accounts
       summary: User login
-      description: Authenticate user and issue JWT tokens
+      description: |-
+        Authenticate user and issue JWT tokens.
+        
+        **Token Delivery:** The JWT access token and refresh token are delivered via HttpOnly cookies
+        and are NOT present in the response body. This prevents XSS attacks from stealing tokens.
+        The response body only returns user_id and expires_in.
       operationId: loginUser
       requestBody:
         required: true
@@ -151,7 +152,7 @@ paths:
                   format: password
       responses:
         '200':
-          description: Login successful
+          description: Login successful (tokens delivered via HttpOnly cookies)
           content:
             application/json:
               schema:
@@ -160,12 +161,9 @@ paths:
                   user_id:
                     type: string
                     format: uuid
-                  access_token:
-                    type: string
-                  refresh_token:
-                    type: string
                   expires_in:
                     type: integer
+                    example: 3600
         '401':
           description: Invalid credentials
           content:
@@ -204,6 +202,31 @@ paths:
                     type: integer
         '401':
           description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /auth/logout:
+    post:
+      tags:
+        - Identity & Accounts
+      summary: Logout user and invalidate refresh token
+      description: |-
+        Invalidates the current refresh token by marking it as revoked server-side.
+        Clears the HttpOnly cookie.
+        
+        **Token Revocation Architecture:**
+        Refresh tokens are stored server-side in a REFRESH_TOKENS table and marked
+        is_revoked: true on logout. This prevents stolen tokens from being used after
+        the user logs out, providing an additional security layer beyond token expiration.
+      operationId: logoutUser
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Logout successful, refresh token revoked
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -306,7 +329,70 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-  /users/nuke:
+  /users/me/export:
+    get:
+      tags:
+        - Identity & Accounts
+      summary: Export all user data (GDPR Data Portability)
+      description: |-
+        Returns a structured JSON file download containing the user's complete data:
+        - Full profile information
+        - All tasks and subtasks
+        - All session history and reflection logs
+        - Chat session history (encrypted content is decrypted for export)
+        - Consent audit trail
+        
+        This endpoint implements GDPR Article 20 (Right to Data Portability).
+        Response is delivered as a downloadable JSON file via Content-Disposition: attachment header.
+      operationId: exportUserData
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User data export file
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="focusnest-export-2026-02-24.json"'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+                  subtasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Subtask'
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+                  chat_sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatSession'
+                  consent_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ConsentAuditLog'
+                  exported_at:
+                    type: string
+                    format: date-time
+                    example: '2026-02-24T10:30:00Z'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/me/nuke:
     delete:
       tags:
         - Identity & Accounts
@@ -525,6 +611,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: |-
+            **Conflict - Single-task enforcement violation**
+            
+            Another task is already in "Doing" status. Only one task can be in Doing
+            at a time to enforce single-task focus. Complete or move the current task
+            before starting a new one.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'SINGLE_TASK_VIOLATION'
+                  message:
+                    type: string
+                    example: 'Another task is already in Doing status. Complete or move it before starting a new one.'
+                  conflicting_task_id:
+                    type: string
+                    format: uuid
+                    description: ID of the task currently in Doing status
     delete:
       tags:
         - Tasks & Planning
@@ -637,6 +745,139 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /tasks/{task_id}/generate-breakdown:
+    post:
+      tags:
+        - Tasks & Planning
+      summary: Generate AI subtask breakdown (preview only)
+      description: |-
+        **Two-Phase AI Breakdown Flow - Phase 1: Preview**
+        
+        Sends the task to OpenAI and returns a preview list of suggested subtasks WITHOUT saving them.
+        Response is an array of subtask objects with is_approved: false. No DB write happens here.
+        
+        Users can review the AI suggestions before committing them to the database via the
+        approve-all endpoint.
+      operationId: generateTaskBreakdown
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: AI-generated subtask suggestions (preview only, not saved)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  suggested_subtasks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        subtask_name:
+                          type: string
+                          example: 'Gather Q1 revenue data'
+                        energy_level:
+                          type: string
+                          enum: [High, Low]
+                          example: 'Low'
+                        is_approved:
+                          type: boolean
+                          example: false
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: OpenAI API error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /tasks/{task_id}/subtasks/approve-all:
+    post:
+      tags:
+        - Tasks & Planning
+      summary: Approve and save AI-generated subtasks
+      description: |-
+        **Two-Phase AI Breakdown Flow - Phase 2: Commit**
+        
+        Takes the previewed subtasks in the request body and saves them all to the DB
+        with is_approved: true. This is what actually populates the Kanban board.
+        
+        The subtasks must be provided in the request body (typically from the
+        generate-breakdown response).
+      operationId: approveAllSubtasks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - subtasks
+              properties:
+                subtasks:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - subtask_name
+                      - energy_level
+                    properties:
+                      subtask_name:
+                        type: string
+                      energy_level:
+                        type: string
+                        enum: [High, Low]
+      responses:
+        '201':
+          description: All subtasks saved with is_approved=true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    format: uuid
+                  created_subtasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Subtask'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /subtasks/{subtask_id}:
     get:
       tags:
@@ -670,7 +911,13 @@ paths:
       tags:
         - Tasks & Planning
       summary: Update subtask
-      description: Modify subtask properties
+      description: |-
+        Modify subtask properties.
+        
+        **Subtask Approval Flow:**
+        Setting is_approved: true is what promotes an AI-generated subtask onto the active
+        Kanban board. Subtasks generated by the AI breakdown flow land with is_approved: false
+        and are invisible to the board until approved.
       operationId: updateSubtask
       security:
         - bearerAuth: []
@@ -890,6 +1137,76 @@ paths:
                 $ref: '#/components/schemas/Session'
         '404':
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Session already ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /sessions/{session_id}/switch:
+    post:
+      tags:
+        - Focus Sessions
+      summary: Session Switch ("I'm Stuck" feature)
+      description: |-
+        Pauses the current High-Energy task and swaps in a Low-Energy task from the backlog
+        without stopping the session timer.
+        
+        This endpoint updates the session's task_id in place, allowing users to pivot
+        when they hit a mental block without losing their active session state.
+        
+        **Validation:** The new_task_id must reference a task with energy_level='Low'.
+        Returns 400 if the new task's energy_level is not Low.
+      operationId: switchSessionTask
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - new_task_id
+              properties:
+                new_task_id:
+                  type: string
+                  format: uuid
+                  description: 'The Low-Energy task to switch to'
+      responses:
+        '200':
+          description: Session task switched successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          description: |-
+            Invalid task - new task must have energy_level='Low'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'INVALID_TASK_ENERGY_LEVEL'
+                  message:
+                    type: string
+                    example: 'Task must be Low-Energy to use session switch'
+        '404':
+          description: Session or task not found
           content:
             application/json:
               schema:
@@ -1515,7 +1832,7 @@ paths:
                   records:
                     type: array
                     items:
-                      $ref: '#/components/schemas/OpenAIUsage'
+                      $ref: '#/components/schemas/AdminOpenAIUsage'
         '403':
           description: Forbidden - Admin only
           content:
@@ -1876,6 +2193,50 @@ components:
           example: true
       xml:
         name: consent_audit_log
+    AdminOpenAIUsage:
+      type: object
+      description: |-
+        Masked version of OpenAIUsage for admin views.
+        Chat content is replaced with masked placeholder to protect user privacy.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 'f6a7b8c9-d0e1-2345-f123-456789012345'
+        user_id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        chat_session_id:
+          type: string
+          format: uuid
+          example: 'c3d4e5f6-a7b8-9012-cdef-123456789012'
+        model:
+          type: string
+          example: 'gpt-4'
+        prompt_tokens:
+          type: integer
+          example: 150
+        completion_tokens:
+          type: integer
+          example: 100
+        total_tokens:
+          type: integer
+          example: 250
+        cost_usd:
+          type: number
+          format: decimal
+          example: 0.0075
+        request_ip_hashed:
+          type: string
+          description: 'SHA-256 hash of request IP for privacy'
+          example: '5d41402abc4b2a76b9719d911017c592'
+        masked_content:
+          type: string
+          description: 'Masked placeholder - actual chat content is not exposed to admins'
+          example: '*****'
+      xml:
+        name: admin_openai_usage
     Error:
       type: object
       required:
