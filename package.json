@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@sentry/react": "^10.38.0",
-    "@sentry/vite-plugin": "^4.9.0",
+    "@sentry/vite-plugin": "^5.1.0",
     "baseline-browser-mapping": "^2.9.19",
     "browserslist": "^4.28.1",
     "caniuse-lite": "^1.0.30001769",
