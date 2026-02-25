@@ -1,36 +1,66 @@
-require("dotenv").config(); // Load environment variables
-require("./instrument.js"); // setup Sentry instrumentation
+require("dotenv").config();
+require("./instrument.js");
+
 const express = require("express");
 const Sentry = require("@sentry/node");
-const app = express();
+const cors = require("cors");
+const helmet = require("helmet");
+const cookieParser = require("cookie-parser");
+const pool = require("./config/db");
 
+const authRoutes = require("./routes/auth.routes");
+
+console.log("Loaded server file:", __filename);
+
+const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// ─── Middleware ──────────────────────────────────────────────
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CLIENT_URL || "http://localhost:5173",
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
-// Routes
+// ─── Routes ─────────────────────────────────────────────────
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+app.use("/api/auth", authRoutes);
+console.log("Auth routes mounted. Route count:", authRoutes?.stack?.length ?? 0);
+
 app.get("/", (req, res) => {
   res.json({ message: `Server is running on port ${PORT}!` });
 });
 
 app.get("/debug-sentry", (req, res, next) => {
   const error = new Error("My first Sentry error!");
-  next(error); // Pass error to error handler
+  next(error);
 });
 
-// The Sentry error handler must be AFTER routes but BEFORE other error middleware
+// 404 handler for unmatched routes
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Not Found",
+    path: req.originalUrl,
+    method: req.method,
+  });
+});
+
+// ─── Error Handling ──────────────────────────────────────────
 Sentry.setupExpressErrorHandler(app);
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// Start server
+// ─── Start Server ────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`✓ Server is running and listening on port ${PORT}`);
-
 });
