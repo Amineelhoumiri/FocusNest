@@ -8,7 +8,9 @@ const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const pool = require("./config/db");
 
-const authRoutes = require("./routes/auth.routes");
+const authRoutes = require("./routes/auth.routes");  // Import auth routes
+const usersRoutes = require("./routes/users.routes");  // Import users routes
+
 
 console.log("Loaded server file:", __filename);
 
@@ -33,6 +35,9 @@ app.use((req, res, next) => {
 
 app.use("/api/auth", authRoutes);
 console.log("Auth routes mounted. Route count:", authRoutes?.stack?.length ?? 0);
+
+app.use("/api/users", usersRoutes);
+console.log("Users routes mounted. Route count:", usersRoutes?.stack?.length ?? 0)
 
 app.get("/", (req, res) => {
   res.json({ message: `Server is running on port ${PORT}!` });
