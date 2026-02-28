@@ -57,10 +57,10 @@ const getSubtasks = async (req, res) => {
             [task_id]
         );
 
-        const subtasks = result.rows.map((row) => ({
+        const subtasks = await Promise.all(result.rows.map(async (row) => ({
             ...row,
-            subtask_name: decrypt(row.subtask_name.toString()),
-        }));
+            subtask_name: await decrypt(row.subtask_name.toString()),
+        })));
 
         return res.status(200).json(subtasks);
 
@@ -116,7 +116,7 @@ const getSubtask = async (req, res) => {
         }
 
         const subtask = result.rows[0];
-        subtask.subtask_name = decrypt(subtask.subtask_name.toString());
+        subtask.subtask_name = await decrypt(subtask.subtask_name.toString());
 
         return res.status(200).json(subtask);
 
@@ -174,7 +174,7 @@ const createSubtask = async (req, res) => {
             });
         }
 
-        const encryptedName = encrypt(subtask_name);
+        const encryptedName = await encrypt(subtask_name);
 
         const result = await pool.query(
             `INSERT INTO subtasks (task_id, subtask_name, subtask_status, energy_level, is_approved)
@@ -234,7 +234,7 @@ const updateSubtask = async (req, res) => {
 
         if (subtask_name !== undefined) {
             fields.push(`subtask_name = $${index++}`);
-            values.push(Buffer.from(encrypt(subtask_name)));
+            values.push(Buffer.from(await encrypt(subtask_name)));
         }
         if (subtask_status !== undefined) {
             fields.push(`subtask_status = $${index++}`);

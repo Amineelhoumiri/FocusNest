@@ -23,10 +23,10 @@ const getTasks = async (req, res) => {
             [user_id]
         );
 
-        const tasks = result.rows.map((row) => ({
+        const tasks = await Promise.all(result.rows.map(async (row) => ({
             ...row,
-            task_name: decrypt(row.task_name.toString()), // decrypt the task_name
-        }));
+            task_name: await decrypt(row.task_name.toString()), // decrypt the task_name
+        })));
 
         return res.status(200).json(tasks);
     } catch (err) {
@@ -62,7 +62,7 @@ const getTask = async (req, res) => {
         }
 
         const task = result.rows[0];
-        task.task_name = decrypt(task.task_name.toString());
+        task.task_name = await decrypt(task.task_name.toString());
 
         return res.status(200).json(task);
     } catch (err) {
@@ -98,7 +98,7 @@ const createTask = async (req, res) => {
             }
         }
 
-        const encryptedTaskName = encrypt(task_name);
+        const encryptedTaskName = await encrypt(task_name);
 
         const result = await pool.query(
             `INSERT INTO tasks (user_id, task_name, task_status, energy_level)
@@ -108,7 +108,7 @@ const createTask = async (req, res) => {
         );
 
         const newTask = result.rows[0];
-        newTask.task_name = decrypt(newTask.task_name.toString());
+        newTask.task_name = await decrypt(newTask.task_name.toString());
 
         return res.status(201).json(newTask);
     } catch (err) {
@@ -151,7 +151,7 @@ const updateTask = async (req, res) => {
 
         if (task_name !== undefined) {
             fields.push(`task_name = $${index++}`);
-            values.push(encrypt(task_name));
+            values.push(await encrypt(task_name));
         }
         if (task_status !== undefined) {
             fields.push(`task_status = $${index++}`);
@@ -182,7 +182,7 @@ const updateTask = async (req, res) => {
         }
 
         const updatedTask = result.rows[0];
-        updatedTask.task_name = decrypt(updatedTask.task_name.toString());
+        updatedTask.task_name = await decrypt(updatedTask.task_name.toString());
 
         return res.status(200).json(updatedTask);
     } catch (err) {

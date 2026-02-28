@@ -1,46 +1,65 @@
-// Encryption service for sensitive data
+// services/encryption.service.js
+// ALE (Application Level Encryption) using AWS KMS + AES-256-GCM
+// KMS is used to encrypt/decrypt the data key
+// AES-256-GCM is used to encrypt the actual data
 
-const crypto = require("crypto"); 
-const ALGORITHM = "aes-256-gcm"; // Encryption algorithm
-const KEY = Buffer.from(process.env.ENCRYPTION_KEY, "hex"); // Encryption key from environment variable
+const { KMSClient, GenerateDataKeyCommand, DecryptCommand } = require("@aws-sdk/client-kms");
+const crypto = require("crypto");
 
-// Encrypt data
-const encrypt = (plaintext) => {
-    const iv = crypto.randomBytes(16); // Generate a random initialization vector
-    const cipher = crypto.createCipheriv(ALGORITHM, KEY, iv);  // Create a cipher instance with the algorithm, key, and IV
+const kmsClient = new KMSClient({ region: process.env.AWS_REGION });
+const KMS_KEY_ID = process.env.KMS_KEY_ID;
 
-    let encrypted = cipher.update(plaintext, "utf8", "hex"); // Encrypt the plaintext
-    encrypted += cipher.final("hex"); // Finalise encryption
-    
-    const authTag = cipher.getAuthTag().toString("hex"); // Get the authentication tag for integrity verification
-    return `${iv.toString("hex")}:${authTag}:${encrypted}`; // Return the IV, encrypted data, and auth tag as a single string
+// Encrypt plaintext using AWS KMS data key + AES-256-GCM
+const encrypt = async (plaintext) => {
+    // Ask KMS to generate a data key
+    // KMS returns both plaintext key (for encrypting) and encrypted key (for storing)
+    const { Plaintext, CiphertextBlob } = await kmsClient.send(
+        new GenerateDataKeyCommand({
+            KeyId: KMS_KEY_ID,
+            KeySpec: "AES_256",
+        })
+    );
+
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv("aes-256-gcm", Plaintext, iv);
+
+    let encrypted = cipher.update(plaintext, "utf8", "hex");
+    encrypted += cipher.final("hex");
+    const authTag = cipher.getAuthTag().toString("hex");
+
+    // Store: encryptedKey:iv:authTag:encryptedData
+    // The encryptedKey is safe to store — only KMS can decrypt it
+    const encryptedKey = Buffer.from(CiphertextBlob).toString("base64");
+    return `${encryptedKey}:${iv.toString("hex")}:${authTag}:${encrypted}`;
 };
 
-// decrypt data
-
-const decrypt = (encryptedString) => {
+// Decrypt using AWS KMS to recover the data key, then AES-256-GCM to decrypt data
+const decrypt = async (encryptedString) => {
     try {
-        // Split the encrypted string into its components
-        const [ivHex, authTagHex, encryptedData] = encryptedString.split(':'); 
+        const [encryptedKey, ivHex, authTagHex, encryptedData] = encryptedString.split(":");
 
-        const iv = Buffer.from(ivHex, "hex"); // Convert IV from hex to buffer
-        const authTag = Buffer.from(authTagHex, "hex"); // Convert auth tag from hex to buffer
+        // Ask KMS to decrypt the data key
+        const { Plaintext } = await kmsClient.send(
+            new DecryptCommand({
+                CiphertextBlob: Buffer.from(encryptedKey, "base64"),
+                KeyId: KMS_KEY_ID,
+            })
+        );
 
-        const decipher = crypto.createDecipheriv(ALGORITHM, KEY, iv);  // Create a decipher instance with the algorithm, key, and IV
-        decipher.setAuthTag(authTag); // Set the authentication tag for integrity verification 
-        
-        let decrypted = decipher.update(encryptedData, "hex", "utf8"); // Decrypt the data
-        decrypted += decipher.final("utf8"); // Finalise decryption
+        const iv = Buffer.from(ivHex, "hex");
+        const authTag = Buffer.from(authTagHex, "hex");
 
-        return decrypted; // Return the decrypted plaintext
+        const decipher = crypto.createDecipheriv("aes-256-gcm", Plaintext, iv);
+        decipher.setAuthTag(authTag);
+
+        let decrypted = decipher.update(encryptedData, "hex", "utf8");
+        decrypted += decipher.final("utf8");
+
+        return decrypted;
     } catch (error) {
-        console.error("Decryption failed:", error);
-        return null; // Return null if decryption fails
+        console.error("Decryption failed:", error.message);
+        return null;
     }
-
 };
 
-module.exports = {
-    encrypt,
-    decrypt,
-};
+module.exports = { encrypt, decrypt };

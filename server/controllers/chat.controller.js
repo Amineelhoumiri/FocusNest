@@ -65,10 +65,10 @@ const getChatHistory = async (req, res) => {
             [chat_session_id]
         );
 
-        const messages = result.rows.map((row) => ({
+        const messages = await Promise.all(result.rows.map(async (row) => ({
             ...row,
-            content: decrypt(row.content.toString()), // decrypt content
-        }));
+            content: await decrypt(row.content.toString()), // decrypt content
+        })));
 
         return res.status(200).json(messages);
     } catch (err) {
@@ -112,7 +112,7 @@ const sendMessage = async (req, res) => {
             return res.status(400).json({ error: "VALIDATION_ERROR", message: "Chat session is already ended." });
         }
 
-        const encryptedContent = encrypt(content);
+        const encryptedContent = await encrypt(content);
 
         const result = await pool.query(
             `INSERT INTO chat_messages (chat_session_id, role, content, token_count)
@@ -122,7 +122,7 @@ const sendMessage = async (req, res) => {
         );
 
         const newMessage = result.rows[0];
-        newMessage.content = decrypt(newMessage.content.toString());
+        newMessage.content = await decrypt(newMessage.content.toString());
 
         // Update chat_sessions updated_at
         await pool.query(

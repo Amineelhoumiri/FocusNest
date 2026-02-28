@@ -42,7 +42,7 @@ const getMe = async (req, res) => {
     const user = result.rows[0];
 
     // Decrypt email before sending to client
-    const email = decrypt(user.encrypted_email.toString());
+    const email = await decrypt(user.encrypted_email.toString());
 
     return res.status(200).json({
       user_id: user.user_id,
@@ -245,7 +245,7 @@ const exportData = async (req, res) => {
       user: {
         user_id: userData.user_id,
         full_name: userData.full_name,
-        email: decrypt(userData.encrypted_email.toString()),
+        email: await decrypt(userData.encrypted_email.toString()),
         date_of_birth: userData.date_of_birth,
         address: userData.address,
         created_at: userData.created_at,
