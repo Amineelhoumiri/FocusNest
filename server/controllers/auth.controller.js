@@ -13,7 +13,7 @@ const {
     verifyAccessToken,
 } = require("../services/token.service");
 
-// Centralizes cookie configuration so it's consistent across register and login
+// Centralises cookie configuration so it's consistent across register and login
 const setTokenCookies = (res, accessToken, refreshToken) => {
     // Access token cookie - short lived (1 hour)
     res.cookie("access_token", accessToken, {
@@ -39,10 +39,10 @@ const register = async (req, res) => {
         const { email, password, full_name, date_of_birth, address } = req.body;
 
         // Validate required fields
-        if (!email || !password || !full_name) {
+        if (!email || !password || !full_name || !date_of_birth) {
             return res.status(400).json({
                 error: "VALIDATION_ERROR",
-                message: "Email, password and full name are required.",
+                message: "Email, password, full name, and date of birth are required.",
             });
         }
 
@@ -86,7 +86,7 @@ const register = async (req, res) => {
        RETURNING user_id, full_name, is_admin`,
             [
                 full_name,
-                date_of_birth || null,
+                date_of_birth,
                 address || null,
                 true,  // core consent is required to register
                 false, // AI consent defaults to false

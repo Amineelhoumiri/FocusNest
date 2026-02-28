@@ -10,6 +10,12 @@ const pool = require("./config/db");
 
 const authRoutes = require("./routes/auth.routes");  // Import auth routes
 const usersRoutes = require("./routes/users.routes");  // Import users routes
+const tasksRoutes = require("./routes/tasks.routes");  // Import tasks routes
+const sessionsRoutes = require("./routes/sessions.routes"); // Import sessions routes
+const subtasksRoutes = require("./routes/subtasks.routes");  // Import subtasks routes
+const chatRoutes = require("./routes/chat.routes");
+const consentRoutes = require("./routes/consent.routes");
+const adminRoutes = require("./routes/admin.routes");
 
 
 console.log("Loaded server file:", __filename);
@@ -32,12 +38,29 @@ app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`);
   next();
 });
+app.use("/api/sessions", sessionsRoutes);
+console.log("Sessions routes mounted. Route count:", sessionsRoutes?.stack?.length ?? 0);
+
+app.use("/api/tasks/:task_id/subtasks", subtasksRoutes);
+console.log("Subtasks routes mounted. Route count:", subtasksRoutes?.stack?.length ?? 0);
 
 app.use("/api/auth", authRoutes);
 console.log("Auth routes mounted. Route count:", authRoutes?.stack?.length ?? 0);
 
 app.use("/api/users", usersRoutes);
-console.log("Users routes mounted. Route count:", usersRoutes?.stack?.length ?? 0)
+console.log("Users routes mounted. Route count:", usersRoutes?.stack?.length ?? 0);
+
+app.use("/api/tasks", tasksRoutes);
+console.log("Tasks routes mounted. Route count:", tasksRoutes?.stack?.length ?? 0);
+
+app.use("/api/chat", chatRoutes);
+console.log("Chat routes mounted. Route count:", chatRoutes?.stack?.length ?? 0);
+
+app.use("/api/consent", consentRoutes);
+console.log("Consent routes mounted. Route count:", consentRoutes?.stack?.length ?? 0);
+
+app.use("/api/admin", adminRoutes);
+console.log("Admin routes mounted. Route count:", adminRoutes?.stack?.length ?? 0);
 
 app.get("/", (req, res) => {
   res.json({ message: `Server is running on port ${PORT}!` });

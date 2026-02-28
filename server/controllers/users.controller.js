@@ -8,9 +8,14 @@ const { encrypt, decrypt } = require("../services/encryption.service");
 
 // ─── Get User ─────────────────────────────────────────────────────────
 
-// GET /api/users/me
-// Returns the logged-in user's profile
-// req.user is attached by auth middleware
+/**
+ * Retrieves the currently authenticated user's profile information.
+ * Decrypts the user's email address safely before returning it.
+ * 
+ * @route GET /api/users/me
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const getMe = async (req, res) => {
   try {
     const { user_id } = req.user;
@@ -62,14 +67,19 @@ const getMe = async (req, res) => {
   }
 };
 
-// ─── Update Current User ───────────────────
-// PATCH /api/users/me
-// Updates the logged-in user's profile
+/**
+ * Partially updates the currently authenticated user's profile metadata.
+ * Can be used to update personal info or adjust base AI/Spotify consent toggles.
+ * 
+ * @route PATCH /api/users/me
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const updateMe = async (req, res) => {
   try {
     const { user_id } = req.user;
     const { full_name, date_of_birth, address,
-            is_consented_ai, is_consented_spotify } = req.body;
+      is_consented_ai, is_consented_spotify } = req.body;
 
     // Build dynamic query that only update fields that were provided
     const fields = [];
@@ -128,9 +138,15 @@ const updateMe = async (req, res) => {
 
 // ─── Delete Account (Nuke) ──────────────────────────────────────────────────
 
-// DELETE /api/users/me/nuke
-// Permanently deletes the user and all their data (GDPR right to erasure)
-// CASCADE deletes handle all related tables automatically
+/**
+ * PERMANENTLY deletes the authenticated user's account and all associated data inside the system.
+ * This is a destructive CASCADE operation resolving GDPR right to erasure.
+ * Requires user confirmation via password validation before nuking.
+ * 
+ * @route DELETE /api/users/me/nuke
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const nukeAccount = async (req, res) => {
   try {
     const { user_id } = req.user;
@@ -191,8 +207,14 @@ const nukeAccount = async (req, res) => {
 
 // ─── Export User Data (GDPR) ──────────────────────────────────────────────────
 
-// GET /api/users/me/export
-// Returns all user data as a downloadable JSON file (GDPR right to portability)
+/**
+ * Compiles all data related to the authenticated user from the database and returns it as a formatted JSON document.
+ * This satisfies GDPR "right to data portability" requirements.
+ * 
+ * @route GET /api/users/me/export
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
 const exportData = async (req, res) => {
   try {
     const { user_id } = req.user;
