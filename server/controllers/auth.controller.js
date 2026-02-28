@@ -54,7 +54,7 @@ const register = async (req, res) => {
         }
 
         // Encrypt email and check if it already exists
-        const encryptedEmail = encrypt(email.toLowerCase());
+        const encryptedEmail = await encrypt(email.toLowerCase());
 
         // Check all existing emails by decrypting and comparing
         // We store encrypted so we can't use a simple WHERE clause
@@ -62,9 +62,14 @@ const register = async (req, res) => {
             "SELECT encrypted_email FROM account"
         );
 
-        const emailExists = existingAccounts.rows.some(
-            (row) => decrypt(row.encrypted_email.toString()) === email.toLowerCase()
-        );
+        let emailExists = false;
+        for (const row of existingAccounts.rows) {
+            const decEmail = await decrypt(row.encrypted_email.toString());
+            if (decEmail === email.toLowerCase()) {
+                emailExists = true;
+                break;
+            }
+        }
 
         if (emailExists) {
             return res.status(409).json({
@@ -154,9 +159,14 @@ const login = async (req, res) => {
        JOIN users u ON a.user_id = u.user_id`
         );
 
-        const account = allAccounts.rows.find(
-            (row) => decrypt(row.encrypted_email.toString()) === email.toLowerCase()
-        );
+        let account;
+        for (const row of allAccounts.rows) {
+            const decEmail = await decrypt(row.encrypted_email.toString());
+            if (decEmail === email.toLowerCase()) {
+                account = row;
+                break;
+            }
+        }
 
         if (!account) {
             return res.status(401).json({
