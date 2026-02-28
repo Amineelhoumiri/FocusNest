@@ -7,6 +7,7 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.1000.0",
     "@sentry/node": "^10.38.0",
     "bcrypt": "^6.0.0",
     "cookie": "^1.1.1",
