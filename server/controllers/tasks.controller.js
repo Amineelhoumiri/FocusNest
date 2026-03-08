@@ -19,7 +19,14 @@ const getTasks = async (req, res) => {
     try {
         const { user_id } = req.user;
         const result = await pool.query(
-            `SELECT * FROM tasks WHERE user_id = $1 ORDER BY created_at DESC`,
+            `SELECT t.*, 
+                    CAST(COUNT(s.subtask_id) AS INTEGER) as total_subtasks,
+                    CAST(COUNT(s.subtask_id) FILTER (WHERE s.subtask_status = 'Done') AS INTEGER) as completed_subtasks
+             FROM tasks t
+             LEFT JOIN subtasks s ON t.task_id = s.task_id
+             WHERE t.user_id = $1 
+             GROUP BY t.task_id
+             ORDER BY t.created_at DESC`,
             [user_id]
         );
 
@@ -129,7 +136,7 @@ const updateTask = async (req, res) => {
     try {
         const { user_id } = req.user;
         const { task_id } = req.params;
-        const { task_name, task_status, energy_level } = req.body;
+        const { task_name, task_status, energy_level, notes, due_date } = req.body;
 
         if (!isValidUUID(task_id)) {
             return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid task_id format." });
@@ -160,6 +167,14 @@ const updateTask = async (req, res) => {
         if (energy_level !== undefined) {
             fields.push(`energy_level = $${index++}`);
             values.push(energy_level);
+        }
+        if (notes !== undefined) {
+            fields.push(`notes = $${index++}`);
+            values.push(notes);
+        }
+        if (due_date !== undefined) {
+            fields.push(`due_date = $${index++}`);
+            values.push(due_date ?? null);
         }
 
         if (fields.length === 0) {
