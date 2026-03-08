@@ -1,0 +1,94 @@
+{
+    "last_updated": "2026-03-08",
+    "exchange_rate_usd_to_gbp": 0.75,
+    "pricing_usd": {
+        "gpt_5_series": {
+            "gpt_5_pro": {
+                "input": 15.00,
+                "output": 120.00
+            },
+            "gpt_5": {
+                "input": 1.25,
+                "cached_input": 0.125,
+                "output": 10.00
+            },
+            "gpt_5_mini": {
+                "input": 0.25,
+                "cached_input": 0.025,
+                "output": 2.00
+            },
+            "gpt_5_nano": {
+                "input": 0.05,
+                "cached_input": 0.005,
+                "output": 0.40
+            }
+        },
+        "gpt_4_series": {
+            "gpt_4o": {
+                "input": 2.50,
+                "cached_input": 1.25,
+                "output": 10.00
+            },
+            "gpt_4.1": {
+                "input": 2.00,
+                "cached_input": 0.50,
+                "output": 8.00
+            },
+            "gpt_4o_mini": {
+                "input": 0.15,
+                "cached_input": 0.075,
+                "output": 0.60
+            },
+            "gpt_4.1_mini": {
+                "input": 0.40,
+                "cached_input": 0.10,
+                "output": 1.60
+            }
+        }
+    },
+    "pricing_gbp": {
+        "gpt_5_series": {
+            "gpt_5_pro": {
+                "input": 11.25,
+                "output": 90.00
+            },
+            "gpt_5": {
+                "input": 0.94,
+                "cached_input": 0.09,
+                "output": 7.50
+            },
+            "gpt_5_mini": {
+                "input": 0.19,
+                "cached_input": 0.02,
+                "output": 1.50
+            },
+            "gpt_5_nano": {
+                "input": 0.04,
+                "cached_input": 0.004,
+                "output": 0.30
+            }
+        },
+        "gpt_4_series": {
+            "gpt_4o": {
+                "input": 1.88,
+                "cached_input": 0.94,
+                "output": 7.50
+            },
+            "gpt_4.1": {
+                "input": 1.50,
+                "cached_input": 0.38,
+                "output": 6.00
+            },
+            "gpt_4o_mini": {
+                "input": 0.11,
+                "cached_input": 0.06,
+                "output": 0.45
+            },
+            "gpt_4.1_mini": {
+                "input": 0.30,
+                "cached_input": 0.08,
+                "output": 1.20
+            }
+        }
+    }
+}
