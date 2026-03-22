@@ -1,6 +1,6 @@
 const express = require("express");
 const auth = require("../middleware/auth");
-const { generateTaskBreakdown, prioritizeTasks, buildMomentum } = require("../services/ai.service.js");
+const { generateTaskBreakdown, prioritizeTasks, buildMomentum, converseWithFinch } = require("../services/ai.service.js");
 
 const router = express.Router();
 
@@ -37,6 +37,21 @@ router.post("/momentum", auth, async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "AI momentum request failed" });
+    }
+});
+
+// 4. Conversational Finch — multi-turn chat with clarifying questions
+router.post("/converse", auth, async (req, res) => {
+    try {
+        const { messages } = req.body;
+        if (!Array.isArray(messages) || messages.length === 0) {
+            return res.status(400).json({ error: "messages array is required" });
+        }
+        const result = await converseWithFinch(messages, req.user.user_id);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "AI converse request failed" });
     }
 });
 

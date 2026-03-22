@@ -6,6 +6,7 @@
 const express = require("express");
 const router = express.Router({ mergeParams: true }); // mergeParams allows access to :task_id from parent route
 const subtasksController = require("../controllers/subtasks.controller");
+
 const auth = require("../middleware/auth");
 
 // GET /api/tasks/:task_id/subtasks
@@ -13,6 +14,9 @@ router.get("/", auth, subtasksController.getSubtasks);
 
 // GET /api/tasks/:task_id/subtasks/:subtask_id
 router.get("/:subtask_id", auth, subtasksController.getSubtask);
+
+// POST /api/tasks/:task_id/subtasks/generate — AI-powered subtask generation
+router.post("/generate", auth, subtasksController.generateSubtasks);
 
 // POST /api/tasks/:task_id/subtasks
 router.post("/", auth, subtasksController.createSubtask);
