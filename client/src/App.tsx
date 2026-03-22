@@ -1,0 +1,69 @@
+// src/App.tsx
+// Core application routing and context provider wrapper for FocusNest.
+// This forms the root of the React DOM mapping paths to Page components.
+
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { AuthProvider } from "@/context/AuthContext";
+import { FocusScoreProvider } from "@/context/FocusScoreContext";
+import AppLayout from "@/components/layout/AppLayout";
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Dashboard from "./pages/Dashboard";
+import Tasks from "./pages/Tasks";
+import TaskBoard from "./pages/TaskBoard";
+import Sessions from "./pages/Sessions";
+import Chat from "./pages/Chat";
+import Spotify from "./pages/Spotify";
+import SettingsPage from "./pages/Settings";
+import Profile from "./pages/Profile";
+import Pricing from "./pages/Pricing";
+import NotFound from "./pages/NotFound";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+
+import CookieBanner from "@/components/CookieBanner";
+
+const queryClient = new QueryClient();
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <ThemeProvider>
+      <AuthProvider>
+        <FocusScoreProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Landing />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route element={<AppLayout />}>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/tasks" element={<Tasks />} />
+                  <Route path="/tasks/:taskId" element={<TaskBoard />} />
+                  <Route path="/sessions" element={<Sessions />} />
+                  <Route path="/chat" element={<Chat />} />
+                  <Route path="/spotify" element={<Spotify />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/pricing" element={<Pricing />} />
+                  <Route path="/admin" element={<AdminDashboard />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+              <CookieBanner />
+            </BrowserRouter>
+          </TooltipProvider>
+        </FocusScoreProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  </QueryClientProvider>
+);
+
+export default App;

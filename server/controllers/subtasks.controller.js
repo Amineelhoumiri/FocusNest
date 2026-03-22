@@ -7,6 +7,7 @@
 
 const pool = require("../config/db");
 const { encrypt, decrypt } = require("../services/encryption.service");
+const { generateTaskBreakdown } = require("../services/ai.service");
 
 // ─── Helper: validate UUID format ─────────────────────────────────────────────
 const isValidUUID = (uuid) => {
@@ -354,4 +355,67 @@ const deleteSubtask = async (req, res) => {
     }
 };
 
-module.exports = { getSubtasks, getSubtask, createSubtask, updateSubtask, deleteSubtask };
+// ─── Generate Subtasks via AI ─────────────────────────────────────────────────
+
+/**
+ * Calls the AI task breakdown service and saves the generated subtasks
+ * with is_approved = false so the user can review and approve them.
+ *
+ * @route POST /api/tasks/:task_id/subtasks/generate
+ */
+const generateSubtasks = async (req, res) => {
+    try {
+        const { user_id } = req.user;
+        const { task_id } = req.params;
+
+        if (!isValidUUID(task_id)) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid task_id format." });
+        }
+
+        // Verify task belongs to user and get task name for the AI prompt
+        const taskResult = await pool.query(
+            `SELECT task_name FROM tasks WHERE task_id = $1 AND user_id = $2`,
+            [task_id, user_id]
+        );
+
+        if (taskResult.rows.length === 0) {
+            return res.status(404).json({ error: "NOT_FOUND", message: "Task not found." });
+        }
+
+        const taskName = await decrypt(taskResult.rows[0].task_name.toString());
+
+        // Call AI to break down the task
+        const aiResult = await generateTaskBreakdown(taskName, user_id);
+
+        if (!aiResult || !Array.isArray(aiResult.subtasks)) {
+            return res.status(500).json({ error: "AI_ERROR", message: "AI did not return valid subtasks." });
+        }
+
+        // Save each generated subtask with is_approved = false
+        const created = await Promise.all(
+            aiResult.subtasks.map(async (st) => {
+                const encryptedName = await encrypt(st.subtask_name);
+                const result = await pool.query(
+                    `INSERT INTO subtasks (task_id, subtask_name, energy_level, is_approved)
+                     VALUES ($1, $2, $3, FALSE)
+                     RETURNING *`,
+                    [task_id, encryptedName, st.energy_level || "Low"]
+                );
+                const row = result.rows[0];
+                row.subtask_name = await decrypt(row.subtask_name.toString());
+                return row;
+            })
+        );
+
+        return res.status(201).json({
+            chat_opening: aiResult.chat_opening || null,
+            chat_closing: aiResult.chat_closing || null,
+            subtasks: created,
+        });
+    } catch (err) {
+        console.error("generateSubtasks error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to generate subtasks." });
+    }
+};
+
+module.exports = { getSubtasks, getSubtask, createSubtask, updateSubtask, deleteSubtask, generateSubtasks };

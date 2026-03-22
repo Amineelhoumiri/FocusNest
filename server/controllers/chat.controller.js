@@ -172,4 +172,22 @@ const endChatSession = async (req, res) => {
     }
 };
 
-module.exports = { startChatSession, getChatHistory, sendMessage, endChatSession };
+const getUserSessions = async (req, res) => {
+    try {
+        const { user_id } = req.user;
+        const result = await pool.query(
+            `SELECT chat_session_id, created_at, updated_at, ended_at
+             FROM chat_sessions
+             WHERE user_id = $1
+             ORDER BY updated_at DESC
+             LIMIT 30`,
+            [user_id]
+        );
+        return res.status(200).json(result.rows);
+    } catch (err) {
+        console.error("getUserSessions error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
+    }
+};
+
+module.exports = { startChatSession, getChatHistory, sendMessage, endChatSession, getUserSessions };

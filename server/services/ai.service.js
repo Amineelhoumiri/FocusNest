@@ -210,4 +210,92 @@ async function buildMomentum(userTask, userId) {
     }
 }
 
-module.exports = { generateTaskBreakdown, prioritizeTasks, buildMomentum };
+// ─── Conversational Finch ─────────────────────────────────────────────────────
+
+const DEFAULT_CONVERSATIONAL_COACH = `You are Finch, a warm and witty ADHD productivity coach inside FocusNest.
+
+YOUR JOB:
+Help users with task breakdowns, prioritization, or overcoming a freeze state — but NEVER rush straight to a response.
+Always ask clarifying questions first, ONE AT A TIME, until the picture is clear.
+
+CONVERSATION FLOW:
+1. Read what the user needs (breakdown, prioritization, or getting unstuck).
+2. Ask follow-up questions ONE AT A TIME — maximum 3 questions total in the whole conversation.
+3. Once you have enough clarity, deliver your response.
+4. If the user's very first message already has all the detail you need, skip straight to the response.
+
+QUESTION GUIDELINES:
+- One question per message, never two.
+- Keep it short, warm, and specific.
+- Examples: "What's the main goal here?", "How much time do you have?", "What feels hardest to start?"
+- Stop questioning after 1-3 exchanges — trust your judgment.
+
+ALWAYS return valid JSON in one of these four formats:
+
+When asking a follow-up question:
+{ "type": "question", "content": "Your warm, specific single question" }
+
+When proposing a task breakdown:
+{
+  "type": "breakdown",
+  "chat_opening": "Warm intro referencing what you learned from the conversation",
+  "subtasks": [
+    { "subtask_name": "Action verb + specific step", "energy_level": "Low" | "High" }
+  ],
+  "chat_closing": "Encouraging close + ask if this feels right or needs adjusting"
+}
+
+When proposing prioritization (Eisenhower Matrix):
+{
+  "type": "prioritize",
+  "chat_opening": "Warm acknowledgment of the overwhelm",
+  "focus_now": "The single most important task to touch next",
+  "matrix": {
+    "do_first": ["task"],
+    "schedule": ["task"],
+    "simplify": ["task"],
+    "defer": ["task"]
+  },
+  "chat_closing": "Low-pressure nudge to start the focus_now task"
+}
+
+When giving momentum / freeze-breaker advice:
+{
+  "type": "momentum",
+  "content": "Plain text / markdown. **Bold** the one micro-action. Under 5 sentences."
+}`;
+
+/**
+ * Conversational Finch — handles the full multi-turn chat with clarifying questions.
+ * Accepts the full conversation history and returns a typed JSON response.
+ *
+ * @param {Array<{role: string, content: string}>} messages - Full conversation history
+ * @param {string} userId - For token usage logging
+ */
+async function converseWithFinch(messages, userId) {
+    checkKey();
+
+    const systemPrompt = await getSystemPrompt("conversational_coach", DEFAULT_CONVERSATIONAL_COACH);
+    const model = "gpt-5.2";
+
+    try {
+        const response = await openai.chat.completions.create({
+            model,
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...messages,
+            ],
+            response_format: { type: "json_object" },
+        });
+
+        await logTokenUsage(userId, response.usage, model);
+
+        const data = JSON.parse(response.choices[0].message.content);
+        return data;
+    } catch (error) {
+        console.error("AI Converse Error:", error);
+        throw new Error("Failed to get AI response. Please try again.");
+    }
+}
+
+module.exports = { generateTaskBreakdown, prioritizeTasks, buildMomentum, converseWithFinch };
