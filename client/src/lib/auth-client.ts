@@ -1,9 +1,12 @@
 import { createAuthClient } from "better-auth/react";
 
-// Point at the Express server. In dev the Vite proxy forwards /api/* to localhost:3000,
-// so we use an absolute URL here so Better Auth can resolve its own callbacks.
+// Dev: Vite proxy — use explicit API origin. Prod (Docker / same host): use current origin when unset.
+const apiBase =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "http://localhost:3000" : (typeof window !== "undefined" ? window.location.origin : ""));
+
 export const authClient = createAuthClient({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3000",
+  baseURL: apiBase,
   basePath: "/api/auth",
 });
 

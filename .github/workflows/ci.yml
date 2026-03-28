@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  server-test:
+    name: Server — test & audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Jest
+        run: npm test
+        env:
+          NODE_ENV: test
+
+      - name: npm audit (high or higher)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  client-test:
+    name: Client — build, test, lint, audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (production)
+        run: npm run build
+
+      - name: Vitest
+        run: npm test
+
+      - name: ESLint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: npm audit (high or higher)
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  docker-build:
+    name: Docker — build image
+    runs-on: ubuntu-latest
+    needs: [server-test, client-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: focusnest:ci
+          build-args: |
+            VITE_API_URL=http://localhost:3000
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: focusnest:ci
+          format: table
+          exit-code: "0"
+          severity: CRITICAL,HIGH
