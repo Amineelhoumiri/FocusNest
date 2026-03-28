@@ -10,20 +10,23 @@ vi.mock("@/context/AuthContext", () => ({
 import { useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FocusScoreProvider } from "@/context/FocusScoreContext";
+import { SpotifyPlaybackProvider } from "@/context/SpotifyPlaybackContext";
 import AppLayout from "@/components/layout/AppLayout";
 
 const renderAppLayout = () => {
   return render(
     <ThemeProvider>
       <FocusScoreProvider>
-        <MemoryRouter initialEntries={["/dashboard"]}>
-          <Routes>
-            <Route path="/login" element={<div>Login Page</div>} />
-            <Route element={<AppLayout />}>
-              <Route path="/dashboard" element={<div>Dashboard Content</div>} />
-            </Route>
-          </Routes>
-        </MemoryRouter>
+        <SpotifyPlaybackProvider>
+          <MemoryRouter initialEntries={["/dashboard"]}>
+            <Routes>
+              <Route path="/login" element={<div>Login Page</div>} />
+              <Route element={<AppLayout />}>
+                <Route path="/dashboard" element={<div>Dashboard Content</div>} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </SpotifyPlaybackProvider>
       </FocusScoreProvider>
     </ThemeProvider>
   );

@@ -116,7 +116,8 @@ describe("GET /api/spotify/status", () => {
   it("returns connected: true with display_name when account exists", async () => {
     pool.query
       .mockResolvedValueOnce({ rows: [{ expires_at: new Date(Date.now() + 60 * 60 * 1000) }] }) // status check
-      .mockResolvedValueOnce({ rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 60 * 60 * 1000) }] }); // getValidAccessToken
+      .mockResolvedValueOnce({ rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 60 * 60 * 1000) }] }) // getValidAccessToken
+      .mockResolvedValueOnce({ rows: [{ scopes: "streaming user-modify-playback-state" }] }); // scopes check
 
     spotifyService.getSpotifyProfile.mockResolvedValue({ display_name: "Amine" });
 
@@ -208,20 +209,48 @@ describe("POST /api/spotify/play", () => {
     expect(res.body.error).toBe("VALIDATION_ERROR");
   });
 
-  it("returns 403 when not connected", async () => {
+  it("returns 400 for non-playlist spotify URIs", async () => {
+    const res = await request(app)
+      .post("/api/spotify/play")
+      .send({ context_uri: "spotify:album:abcabcabcabcabcabcabc" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 403 NOT_ALLOWED when playlist is not in curated list", async () => {
     pool.query.mockResolvedValueOnce({ rows: [] });
 
-    const res = await request(app).post("/api/spotify/play").send({ context_uri: "spotify:playlist:abc" });
+    const res = await request(app)
+      .post("/api/spotify/play")
+      .send({ context_uri: "spotify:playlist:notInCuratedList12" });
     expect(res.status).toBe(403);
+    expect(res.body.error).toBe("NOT_ALLOWED");
+    expect(spotifyService.playContext).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 NOT_CONNECTED when curated but Spotify not linked", async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post("/api/spotify/play")
+      .send({ context_uri: "spotify:playlist:curatedplaylistid1" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("NOT_CONNECTED");
   });
 
   it("returns 204 on successful playback start", async () => {
-    pool.query.mockResolvedValueOnce({
-      rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
-    });
+    pool.query
+      .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
+      .mockResolvedValueOnce({
+        rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
+      });
     spotifyService.playContext.mockResolvedValue();
 
-    const res = await request(app).post("/api/spotify/play").send({ context_uri: "spotify:playlist:abc" });
+    const res = await request(app)
+      .post("/api/spotify/play")
+      .send({ context_uri: "spotify:playlist:curatedplaylistid1" });
     expect(res.status).toBe(204);
   });
 });

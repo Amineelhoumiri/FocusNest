@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { FocusScoreProvider } from "@/context/FocusScoreContext";
+import { SpotifyPlaybackProvider } from "@/context/SpotifyPlaybackContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
@@ -18,7 +19,10 @@ import Dashboard from "./pages/Dashboard";
 import Tasks from "./pages/Tasks";
 import TaskBoard from "./pages/TaskBoard";
 import Sessions from "./pages/Sessions";
+import SessionActive from "./pages/SessionActive";
+import SessionComplete from "./pages/SessionComplete";
 import Chat from "./pages/Chat";
+import ChatHistory from "./pages/ChatHistory";
 import Spotify from "./pages/Spotify";
 import SettingsPage from "./pages/Settings";
 import Profile from "./pages/Profile";
@@ -35,7 +39,8 @@ const App = () => (
     <ThemeProvider>
       <AuthProvider>
         <FocusScoreProvider>
-          <TooltipProvider>
+          <SpotifyPlaybackProvider>
+            <TooltipProvider>
             <Toaster />
             <Sonner />
             <BrowserRouter>
@@ -49,17 +54,21 @@ const App = () => (
                   <Route path="/tasks/:taskId" element={<TaskBoard />} />
                   <Route path="/sessions" element={<Sessions />} />
                   <Route path="/chat" element={<Chat />} />
+                  <Route path="/chat/history" element={<ChatHistory />} />
                   <Route path="/spotify" element={<Spotify />} />
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/admin" element={<AdminDashboard />} />
                 </Route>
+                <Route path="/sessions/active" element={<SessionActive />} />
+                <Route path="/sessions/complete" element={<SessionComplete />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <CookieBanner />
             </BrowserRouter>
-          </TooltipProvider>
+            </TooltipProvider>
+          </SpotifyPlaybackProvider>
         </FocusScoreProvider>
       </AuthProvider>
     </ThemeProvider>
