@@ -1,380 +1,977 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Music, Play, Loader2, LogOut, RefreshCw, ListMusic, ExternalLink } from "lucide-react";
+import {
+  Play, Pause, SkipForward, SkipBack,
+  Volume2, VolumeX, Shuffle, Music2, Loader2, AlertCircle, ExternalLink,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useSearchParams } from "react-router-dom";
+import { useYouTubePlayer }  from "@/hooks/useYouTubePlayer";
+import { useSpotifyPlayback } from "@/context/SpotifyPlaybackContext";
+import { useTheme }          from "@/context/ThemeContext";
+import { cn }                from "@/lib/utils";
 
-interface NowPlaying {
-  playing: boolean;
-  track?: {
-    name: string;
-    artist: string;
-    album: string;
-    image: string | null;
-    duration: number;
-    progress: number;
-    uri: string;
-  };
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Playlist {
-  id: string;
+interface CuratedPlaylist {
+  id: number;
+  youtube_playlist_id: string;
   name: string;
-  uri: string;
-  tracks: number;
-  image: string | null;
+  description: string | null;
+  image_url: string | null;
 }
 
-interface Status {
-  connected: boolean;
-  display_name?: string | null;
-}
+type Source = "free" | "spotify";
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const ProgressBar = ({ progress, duration }: { progress: number; duration: number }) => {
-  const pct = duration > 0 ? Math.min((progress / duration) * 100, 100) : 0;
-  const fmt = (ms: number) => {
-    const s = Math.floor(ms / 1000);
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const ytThumb  = (videoId: string | null) =>
+  videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
+
+const fmtSec   = (s: number) =>
+  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+const pickRandom = (arr: CuratedPlaylist[]) =>
+  arr[Math.floor(Math.random() * arr.length)];
+
+// ─── Spotify logo SVG ────────────────────────────────────────────────────────
+
+const SpotifyLogo = ({ size = 16, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+    <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424a.622.622 0 01-.857.207c-2.348-1.435-5.304-1.76-8.785-.964a.623.623 0 01-.277-1.215c3.809-.87 7.076-.496 9.712 1.115a.622.622 0 01.207.857zm1.223-2.722a.779.779 0 01-1.072.257c-2.687-1.652-6.785-2.131-9.965-1.166a.78.78 0 01-.973-.519.779.779 0 01.519-.972c3.632-1.102 8.147-.568 11.234 1.328a.78.78 0 01.257 1.072zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71a.937.937 0 11-.543-1.794c3.532-1.072 9.404-.865 13.115 1.338a.936.936 0 01-1.055 1.553z" />
+  </svg>
+);
+
+// ─── Equalizer bars ───────────────────────────────────────────────────────────
+
+const EqBars = ({ playing, color = "hsl(var(--primary))" }: { playing: boolean; color?: string }) => (
+  <div className="flex items-end gap-[2px] h-3">
+    {[0.3, 0.6, 0.45, 0.75, 0.5].map((h, i) => (
+      <motion.div
+        key={i}
+        className="w-[2px] rounded-full"
+        style={{ background: color, minHeight: 3 }}
+        animate={playing ? { height: [`${h * 12}px`, "12px", `${h * 8}px`] } : { height: "3px" }}
+        transition={{ duration: 0.6 + i * 0.1, repeat: Infinity, ease: "easeInOut", delay: i * 0.12 }}
+      />
+    ))}
+  </div>
+);
+
+// ─── Seek bar ─────────────────────────────────────────────────────────────────
+
+const SeekBar = ({ current, duration, onSeek }: { current: number; duration: number; onSeek: (s: number) => void }) => {
+  const ref  = useRef<HTMLDivElement>(null);
+  const pct  = duration > 0 ? (current / duration) * 100 : 0;
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    onSeek(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration);
   };
+
   return (
-    <div className="w-full">
-      <div className="h-1 rounded-full bg-muted/60 overflow-hidden mb-1">
-        <div className="h-full bg-[#1DB954] rounded-full transition-all duration-1000" style={{ width: `${pct}%` }} />
+    <div className="w-full group">
+      <div
+        ref={ref}
+        onClick={handleClick}
+        className="relative h-1.5 rounded-full cursor-pointer"
+        style={{ background: isDark ? "rgba(255,255,255,0.10)" : "rgba(83,74,183,0.12)" }}
+      >
+        <motion.div
+          className="absolute left-0 top-0 h-full rounded-full"
+          style={{ width: `${pct}%`, background: "hsl(var(--primary))" }}
+          transition={{ duration: 0.5 }}
+        />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ left: `calc(${pct}% - 6px)`, background: "white", boxShadow: "0 0 8px rgba(255,255,255,0.4)" }}
+        />
       </div>
-      <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>{fmt(progress)}</span>
-        <span>{fmt(duration)}</span>
+      <div className="flex justify-between mt-1.5 text-[10px] tabular-nums text-muted-foreground/65">
+        <span>{fmtSec(current)}</span>
+        <span>{fmtSec(duration)}</span>
       </div>
     </div>
   );
 };
 
-// ─── Not Connected ────────────────────────────────────────────────────────────
+// ─── Source toggle ────────────────────────────────────────────────────────────
 
-const NotConnected = ({ onConnect, isConnecting }: { onConnect: () => void; isConnecting: boolean }) => (
-  <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
-    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-sm">
-      <div className="w-20 h-20 rounded-full bg-[#1DB954]/15 flex items-center justify-center mx-auto mb-6">
-        <Music className="w-10 h-10 text-[#1DB954]" />
-      </div>
-      <h2 className="text-2xl font-bold text-foreground mb-2">Connect Spotify</h2>
-      <p className="text-muted-foreground text-sm mb-8 leading-relaxed">
-        Link your Spotify account to browse your playlists and play focus music directly from FocusNest during your sessions.
-      </p>
-      <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={onConnect}
-        disabled={isConnecting}
-        className="flex items-center gap-2 px-6 py-3 rounded-xl bg-[#1DB954] hover:bg-[#1aa34a] text-black font-semibold mx-auto min-h-[44px] transition-colors disabled:opacity-60"
-      >
-        {isConnecting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Music className="w-5 h-5" />}
-        {isConnecting ? "Connecting…" : "Connect Spotify"}
-      </motion.button>
-      <p className="text-xs text-muted-foreground mt-4">
-        You'll be redirected to Spotify to approve access.
-      </p>
-    </motion.div>
-  </div>
-);
+const SourceToggle = ({ active, onChange }: { active: Source; onChange: (s: Source) => void }) => {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
-// ─── Connected View ───────────────────────────────────────────────────────────
-
-const ConnectedView = ({
-  displayName,
-  nowPlaying,
-  playlists,
-  isLoadingPlaylists,
-  isLoadingNow,
-  onPlay,
-  onDisconnect,
-  onRefreshNow,
-}: {
-  displayName: string | null | undefined;
-  nowPlaying: NowPlaying | null;
-  playlists: Playlist[];
-  isLoadingPlaylists: boolean;
-  isLoadingNow: boolean;
-  onPlay: (uri: string) => void;
-  onDisconnect: () => void;
-  onRefreshNow: () => void;
-}) => (
-  <div className="max-w-4xl mx-auto space-y-6 pb-20">
-
-    {/* Header */}
-    <div className="flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-          <Music className="w-6 h-6 text-[#1DB954]" /> Spotify
-        </h1>
-        {displayName && (
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Connected as <span className="text-[#1DB954] font-medium">{displayName}</span>
-          </p>
-        )}
-      </div>
-      <button
-        onClick={onDisconnect}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-destructive transition-colors px-3 py-2 rounded-lg hover:bg-destructive/10"
-      >
-        <LogOut className="w-4 h-4" /> Disconnect
-      </button>
-    </div>
-
-    {/* Now Playing */}
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Now Playing</h2>
-        <button onClick={onRefreshNow} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded">
-          <RefreshCw className={`w-4 h-4 ${isLoadingNow ? "animate-spin" : ""}`} />
-        </button>
-      </div>
-
-      <AnimatePresence mode="wait">
-        {isLoadingNow ? (
-          <div key="loading" className="flex items-center justify-center h-16">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : nowPlaying?.playing && nowPlaying.track ? (
-          <motion.div key="playing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-4">
-            {nowPlaying.track.image ? (
-              <img src={nowPlaying.track.image} alt={nowPlaying.track.album} className="w-14 h-14 rounded-lg shadow-md object-cover shrink-0" />
+  return (
+    <div
+      className="flex items-center gap-0.5 p-1 rounded-xl"
+      style={{
+        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(83,74,183,0.07)",
+        border: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
+      }}
+    >
+      {(["free", "spotify"] as Source[]).map((src) => {
+        const isActive = active === src;
+        return (
+          <motion.button
+            key={src}
+            onClick={() => onChange(src)}
+            className="relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors"
+            style={{
+              background: isActive ? (isDark ? "rgba(124,111,247,0.22)" : "#fff") : "transparent",
+              color: isActive
+                ? (src === "spotify" ? "#1DB954" : isDark ? "#c4b5fd" : "#534AB7")
+                : (isDark ? "rgba(148,163,184,0.75)" : "rgba(83,74,183,0.55)"),
+              boxShadow: isActive && !isDark ? "0 1px 6px rgba(83,74,183,0.12)" : undefined,
+              border: isActive ? (isDark ? "1px solid rgba(124,111,247,0.25)" : "1px solid rgba(83,74,183,0.15)") : "1px solid transparent",
+            }}
+          >
+            {src === "free" ? (
+              <Music2 className="w-3.5 h-3.5" style={{ width: 14, height: 14 }} />
             ) : (
-              <div className="w-14 h-14 rounded-lg bg-[#1DB954]/20 flex items-center justify-center shrink-0">
-                <Music className="w-6 h-6 text-[#1DB954]" />
-              </div>
+              <SpotifyLogo size={14} />
             )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground truncate">{nowPlaying.track.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{nowPlaying.track.artist} · {nowPlaying.track.album}</p>
-              <div className="mt-2">
-                <ProgressBar progress={nowPlaying.track.progress} duration={nowPlaying.track.duration} />
-              </div>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 text-muted-foreground">
-            <div className="w-10 h-10 rounded-lg bg-surface-raised flex items-center justify-center">
-              <Music className="w-5 h-5 opacity-40" />
-            </div>
-            <p className="text-sm">Nothing playing right now — pick a playlist below to start.</p>
+            {src === "free" ? "Free" : "Spotify"}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── Free player (YouTube) ────────────────────────────────────────────────────
+
+const FreePlayer = () => {
+  const [playlists, setPlaylists] = useState<CuratedPlaylist[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeId,  setActiveId]  = useState<string | null>(null);
+  const [volume,    setVolVol]    = useState(70);
+  const [muted,     setMuted]     = useState(false);
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  const { ready, error, playerState, pause, resume, nextTrack, prevTrack, seek, setVolume, playPlaylist } =
+    useYouTubePlayer();
+
+  useEffect(() => {
+    fetch("/api/music/curated", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => { setPlaylists(Array.isArray(d) ? d : []); })
+      .catch(() => setPlaylists([]))
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  const handlePlay = useCallback((id: string) => {
+    setActiveId(id);
+    try { playPlaylist(id); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Playback failed"); }
+  }, [playPlaylist]);
+
+  const handleRandom = useCallback(() => {
+    if (!playlists.length) return;
+    const pick = pickRandom(playlists);
+    handlePlay(pick.youtube_playlist_id);
+  }, [playlists, handlePlay]);
+
+  const handleVolume = (v: number) => {
+    setVolVol(v);
+    setMuted(v === 0);
+    setVolume(v / 100);
+  };
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    setVolume(next ? 0 : volume / 100);
+  };
+
+  const isPlaying  = playerState?.isPlaying ?? false;
+  const thumb      = ytThumb(playerState?.videoId ?? null);
+  const activeName = playlists.find(p => p.youtube_playlist_id === activeId)?.name ?? null;
+
+  const cardStyle: React.CSSProperties = {
+    background:     isDark ? "rgba(26,24,46,0.65)" : "rgba(255,255,255,0.80)",
+    border:         isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
+    backdropFilter: "blur(20px)",
+    borderRadius:   "1.25rem",
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+
+      {/* Ambient background */}
+      <AnimatePresence>
+        {thumb && (
+          <motion.div
+            key={playerState?.videoId}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 1.5 }}
+            className="fixed inset-0 pointer-events-none"
+            style={{ zIndex: 0 }}
+          >
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: `url(${thumb})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                filter: "blur(80px) saturate(1.8)",
+                opacity: 0.07,
+                transform: "scale(1.2)",
+              }}
+            />
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
 
-    {/* Playlists */}
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-      <div className="flex items-center gap-2 mb-4">
-        <ListMusic className="w-4 h-4 text-muted-foreground" />
-        <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Your Playlists</h2>
-      </div>
+      {/* ── Now playing + controls ── */}
+      <div className="flex gap-5 items-start flex-col sm:flex-row">
 
-      {isLoadingPlaylists ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="glass-card rounded-xl p-3 animate-pulse">
-              <div className="w-full aspect-square rounded-lg bg-surface-raised mb-3" />
-              <div className="h-3 bg-surface-raised rounded w-3/4 mb-1" />
-              <div className="h-2.5 bg-surface-raised rounded w-1/2" />
-            </div>
-          ))}
-        </div>
-      ) : playlists.length === 0 ? (
-        <div className="glass-card rounded-2xl p-10 text-center">
-          <p className="text-muted-foreground text-sm">No playlists found in your Spotify library.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {playlists.map((pl) => (
-            <motion.div
-              key={pl.id}
-              whileHover={{ y: -3, transition: { duration: 0.15 } }}
-              className="glass-card rounded-xl p-3 cursor-pointer group transition-colors hover:bg-card/80"
-              onClick={() => onPlay(pl.uri)}
-            >
-              <div className="relative w-full aspect-square rounded-lg overflow-hidden mb-3 bg-surface-raised">
-                {pl.image ? (
-                  <img src={pl.image} alt={pl.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Music className="w-8 h-8 text-muted-foreground/40" />
-                  </div>
+        {/* Artwork + controls */}
+        <div className="flex-1 overflow-hidden flex flex-col" style={{ ...cardStyle, minHeight: 380 }}>
+
+          {/* Artwork */}
+          <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+            <AnimatePresence mode="wait">
+              {thumb ? (
+                <motion.img
+                  key={playerState?.videoId}
+                  src={thumb} alt=""
+                  initial={{ opacity: 0, scale: 1.04 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+              ) : (
+                <motion.div
+                  key="placeholder"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+                  style={{ background: "hsl(var(--primary) / 0.04)" }}
+                >
+                  {!ready ? (
+                    <>
+                      <Loader2 className="w-7 h-7 animate-spin" style={{ color: "hsl(var(--primary) / 0.4)" }} />
+                      <p className="text-xs text-muted-foreground/65">Loading player…</p>
+                    </>
+                  ) : error ? (
+                    <>
+                      <AlertCircle className="w-7 h-7 text-destructive/50" />
+                      <p className="text-xs text-destructive/60 max-w-[200px] text-center">{error}</p>
+                    </>
+                  ) : (
+                    <>
+                      <div
+                        className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                        style={{ background: "hsl(var(--primary) / 0.08)", border: "1px solid hsl(var(--primary) / 0.12)" }}
+                      >
+                        <Music2 className="w-6 h-6" style={{ color: "hsl(var(--primary) / 0.35)" }} />
+                      </div>
+                      <p className="text-xs text-muted-foreground/65 tracking-wide">
+                        {playlists.length ? "Pick a playlist to begin" : "No playlists yet"}
+                      </p>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {isPlaying && (
+              <div className="absolute top-3 right-3 flex items-end gap-[2px] h-5 px-2 py-1.5 rounded-lg"
+                style={{ background: "rgba(0,0,0,0.52)", backdropFilter: "blur(8px)" }}>
+                <EqBars playing={isPlaying} color="white" />
+              </div>
+            )}
+          </div>
+
+          {/* Track info + controls */}
+          <div className="flex flex-col p-5 gap-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <AnimatePresence mode="wait">
+                  <motion.p
+                    key={playerState?.title || "idle"}
+                    initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.3 }}
+                    className="text-sm font-semibold text-foreground truncate leading-tight"
+                  >
+                    {playerState?.title || activeName || "Nothing playing"}
+                  </motion.p>
+                </AnimatePresence>
+                {playerState?.author && (
+                  <p className="text-[11px] text-muted-foreground/65 truncate mt-0.5">{playerState.author}</p>
                 )}
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
-                  <div className="w-10 h-10 rounded-full bg-[#1DB954] flex items-center justify-center shadow-lg">
-                    <Play className="w-5 h-5 text-black fill-black" />
-                  </div>
+              </div>
+            </div>
+
+            {playerState
+              ? <SeekBar current={playerState.currentTime} duration={playerState.duration} onSeek={seek} />
+              : <div className="w-full h-1.5 rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)" }} />
+            }
+
+            {/* Controls row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={prevTrack}
+                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+                  style={{ color: "hsl(var(--foreground) / 0.45)" }}
+                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.9)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.45)")}
+                >
+                  <SkipBack className="w-4 h-4" />
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={isPlaying ? pause : resume}
+                  className="w-12 h-12 rounded-full flex items-center justify-center text-white transition-all"
+                  style={{
+                    background: "hsl(var(--primary))",
+                    boxShadow: "0 4px 24px hsl(var(--primary) / 0.45)",
+                  }}
+                >
+                  {isPlaying
+                    ? <Pause className="w-5 h-5 fill-white" />
+                    : <Play  className="w-5 h-5 fill-white ml-0.5" />}
+                </motion.button>
+
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  onClick={nextTrack}
+                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+                  style={{ color: "hsl(var(--foreground) / 0.45)" }}
+                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.9)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.45)")}
+                >
+                  <SkipForward className="w-4 h-4" />
+                </motion.button>
+              </div>
+
+              {/* Volume */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleMute}
+                  className="transition-colors"
+                  style={{ color: "hsl(var(--foreground) / 0.40)" }}
+                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.8)")}
+                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.40)")}
+                >
+                  {muted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                </button>
+                <div
+                  className="relative w-20 h-1.5 rounded-full cursor-pointer group"
+                  style={{ background: isDark ? "rgba(255,255,255,0.10)" : "rgba(83,74,183,0.12)" }}
+                  onClick={e => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    handleVolume(Math.round(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 100));
+                  }}
+                >
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${muted ? 0 : volume}%`, background: "hsl(var(--primary) / 0.7)" }}
+                  />
                 </div>
               </div>
-              <p className="text-sm font-medium text-foreground truncate">{pl.name}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{pl.tracks} tracks</p>
-            </motion.div>
-          ))}
+            </div>
+          </div>
         </div>
-      )}
-    </motion.div>
 
-    <p className="text-xs text-center text-muted-foreground pt-2 flex items-center justify-center gap-1">
-      Playback requires Spotify to be open on a device.
-      <a href="https://open.spotify.com" target="_blank" rel="noopener noreferrer" className="text-[#1DB954] hover:underline inline-flex items-center gap-0.5">
-        Open Spotify <ExternalLink className="w-3 h-3" />
-      </a>
-    </p>
-  </div>
-);
+        {/* ── Playlist sidebar ── */}
+        <div
+          className="w-full sm:w-56 overflow-hidden flex flex-col shrink-0"
+          style={{ ...cardStyle, maxHeight: 440 }}
+        >
+          <div
+            className="flex items-center justify-between px-4 py-3 shrink-0"
+            style={{ borderBottom: isDark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(83,74,183,0.10)" }}
+          >
+            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
+              Playlists
+            </p>
+            <motion.button
+              whileTap={{ scale: 0.92 }}
+              onClick={handleRandom}
+              disabled={!ready || !playlists.length}
+              className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg transition-all disabled:opacity-40"
+              style={{
+                background: "hsl(var(--primary) / 0.08)",
+                color: "hsl(var(--primary))",
+              }}
+            >
+              <Shuffle className="w-2.5 h-2.5" />
+              Shuffle
+            </motion.button>
+          </div>
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+          <div className="flex-1 overflow-y-auto py-1.5 px-1.5 flex flex-col gap-0.5">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/40" />
+              </div>
+            ) : playlists.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground/65 text-center py-10 px-3">No playlists yet.</p>
+            ) : (
+              playlists.map(pl => {
+                const active = activeId === pl.youtube_playlist_id;
+                return (
+                  <motion.button
+                    key={pl.id}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handlePlay(pl.youtube_playlist_id)}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all"
+                    style={{
+                      background: active ? "hsl(var(--primary) / 0.10)" : "transparent",
+                      border: active ? "1px solid hsl(var(--primary) / 0.20)" : "1px solid transparent",
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = "hsl(var(--foreground) / 0.04)"; }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
+                      style={{ background: "hsl(var(--primary) / 0.08)" }}
+                    >
+                      {pl.image_url
+                        ? <img src={pl.image_url} alt="" className="w-full h-full object-cover" />
+                        : <Music2 className="w-3.5 h-3.5" style={{ color: "hsl(var(--primary) / 0.45)" }} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate" style={{ color: active ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.85)" }}>
+                        {pl.name}
+                      </p>
+                      {pl.description && (
+                        <p className="text-[9px] truncate mt-0.5 text-muted-foreground/55">{pl.description}</p>
+                      )}
+                    </div>
+                    {active && isPlaying && <EqBars playing />}
+                  </motion.button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
 
-const SpotifyPage = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
+      <p className="text-center text-[9px] text-muted-foreground/45 tracking-widest uppercase">
+        Powered by YouTube · Free · No account required
+      </p>
+    </div>
+  );
+};
 
-  const [status, setStatus] = useState<Status | null>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
-  const [isConnecting, setIsConnecting] = useState(false);
+// ─── Spotify player view (when connected + Premium) ───────────────────────────
 
-  const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
-  const [isLoadingNow, setIsLoadingNow] = useState(false);
+const SpotifyPlayerView = () => {
+  const { playerState, ready, error, pause, resume, nextTrack, prevTrack, seek, playPlaylist } = useSpotifyPlayback();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [isLoadingPlaylists, setIsLoadingPlaylists] = useState(false);
+  const [curated, setCurated] = useState<{ id: number; playlist_id: string; name: string; description: string | null }[]>([]);
+  const [loadingCurated, setLoadingCurated] = useState(true);
 
-  // Handle redirect back from Spotify OAuth
+  const [playingUri, setPlayingUri] = useState<string | null>(null);
+
   useEffect(() => {
-    const connected = searchParams.get("connected");
-    const error = searchParams.get("error");
-    if (connected === "true") {
-      toast.success("Spotify connected successfully!");
-      setSearchParams({}, { replace: true });
-    } else if (error) {
-      const msg =
-        error === "access_denied"
-          ? "Spotify access denied — make sure your account is added as a test user in the Spotify Dashboard."
-          : error === "invalid_client"
-          ? "Spotify config error — check that the Redirect URI in your Spotify Dashboard matches exactly."
-          : error === "missing_params"
-          ? "Spotify callback received no code — check server logs."
-          : `Spotify error: ${error}`;
-      toast.error(msg, { duration: 8000 });
-      setSearchParams({}, { replace: true });
-    }
+    fetch("/api/music/curated?source=spotify", { credentials: "include" })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : [];
+        setCurated(
+          list.map((row: { id: number; playlist_id?: string; youtube_playlist_id?: string; name: string; description: string | null }) => ({
+            id: row.id,
+            playlist_id: row.playlist_id ?? row.youtube_playlist_id ?? "",
+            name: row.name,
+            description: row.description,
+          })).filter((x: { playlist_id: string }) => x.playlist_id)
+        );
+      })
+      .catch(() => setCurated([]))
+      .finally(() => setLoadingCurated(false));
   }, []);
 
-  const fetchStatus = useCallback(async () => {
+  const handlePlay = useCallback(async (uri: string) => {
+    setPlayingUri(uri);
     try {
-      const res = await fetch("/api/spotify/status", { credentials: "include" });
-      if (res.ok) setStatus(await res.json());
-      else setStatus({ connected: false });
-    } catch {
-      setStatus({ connected: false });
-    } finally {
-      setIsLoadingStatus(false);
+      await playPlaylist(uri);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Playback failed — make sure Spotify is open on a device.");
+      setPlayingUri(null);
     }
-  }, []);
+  }, [playPlaylist]);
 
-  const fetchNowPlaying = useCallback(async () => {
-    setIsLoadingNow(true);
-    try {
-      const res = await fetch("/api/spotify/now-playing", { credentials: "include" });
-      if (res.ok) setNowPlaying(await res.json());
-    } catch {
-      // Silently fail
-    } finally {
-      setIsLoadingNow(false);
-    }
-  }, []);
+  const track  = playerState?.track_window?.current_track;
+  const art    = track?.album?.images?.[0]?.url ?? null;
+  const isPlay = !playerState?.paused;
+  const pos    = playerState ? playerState.position / 1000 : 0;
+  const dur    = playerState ? playerState.duration / 1000 : 0;
 
-  const fetchPlaylists = useCallback(async () => {
-    setIsLoadingPlaylists(true);
-    try {
-      const res = await fetch("/api/spotify/playlists", { credentials: "include" });
-      if (res.ok) setPlaylists(await res.json());
-      else toast.error("Failed to load playlists.");
-    } catch {
-      toast.error("Failed to load playlists.");
-    } finally {
-      setIsLoadingPlaylists(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchStatus(); }, [fetchStatus]);
-
-  useEffect(() => {
-    if (!status?.connected) return;
-    fetchNowPlaying();
-    fetchPlaylists();
-    const interval = setInterval(fetchNowPlaying, 30_000);
-    return () => clearInterval(interval);
-  }, [status?.connected]);
-
-  const handleConnect = async () => {
-    setIsConnecting(true);
-    try {
-      const res = await fetch("/api/spotify/auth", { credentials: "include" });
-      if (!res.ok) throw new Error();
-      const { url } = await res.json();
-      window.location.href = url;
-    } catch {
-      toast.error("Failed to start Spotify connection.");
-      setIsConnecting(false);
-    }
+  const cardStyle: React.CSSProperties = {
+    background:     isDark ? "rgba(26,24,46,0.65)" : "rgba(255,255,255,0.80)",
+    border:         isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
+    backdropFilter: "blur(20px)",
+    borderRadius:   "1.25rem",
   };
 
-  const handlePlay = async (contextUri: string) => {
-    try {
-      const res = await fetch("/api/spotify/play", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context_uri: contextUri }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message);
-      }
-      setTimeout(fetchNowPlaying, 1500);
-    } catch (err: any) {
-      toast.error(err.message || "Playback failed. Make sure Spotify is open on a device.");
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      await fetch("/api/spotify/disconnect", { method: "DELETE", credentials: "include" });
-      setStatus({ connected: false });
-      setNowPlaying(null);
-      setPlaylists([]);
-      toast.success("Spotify disconnected.");
-    } catch {
-      toast.error("Failed to disconnect.");
-    }
-  };
-
-  if (isLoadingStatus) {
+  if (!ready && !error) {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#1DB954]" />
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground/40" />
       </div>
     );
   }
 
-  if (!status?.connected) {
-    return <NotConnected onConnect={handleConnect} isConnecting={isConnecting} />;
+  if (error) {
+    const isPremiumError = error.toLowerCase().includes("premium") || error.toLowerCase().includes("account");
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col items-center gap-4 py-16 text-center px-6"
+        style={cardStyle}
+      >
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center"
+          style={{ background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.20)" }}
+        >
+          <AlertCircle className="w-6 h-6 text-red-400" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {isPremiumError ? "Spotify Premium required" : "Playback error"}
+          </p>
+          <p className="text-[12px] mt-1.5 max-w-[300px] mx-auto" style={{ color: isDark ? "rgba(148,163,184,1)" : "rgba(26,24,48,0.55)" }}>
+            {isPremiumError
+              ? "In-browser playback requires a Spotify Premium subscription."
+              : error}
+          </p>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          {isPremiumError && (
+            <a
+              href="https://spotify.com/premium"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-[12px] font-semibold px-4 py-2 rounded-xl transition-colors"
+              style={{ background: "#1DB954", color: "#fff" }}
+            >
+              <SpotifyLogo size={14} />
+              Explore Premium
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+          <button
+            onClick={async () => {
+              const res = await fetch("/api/spotify/auth", { credentials: "include" }).catch(() => null);
+              if (res?.ok) {
+                const { url } = await res.json();
+                window.location.href = url;
+              }
+            }}
+            className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground underline underline-offset-2 transition-colors"
+          >
+            Reconnect Spotify account
+          </button>
+        </div>
+      </motion.div>
+    );
   }
 
   return (
-    <ConnectedView
-      displayName={status.display_name}
-      nowPlaying={nowPlaying}
-      playlists={playlists}
-      isLoadingPlaylists={isLoadingPlaylists}
-      isLoadingNow={isLoadingNow}
-      onPlay={handlePlay}
-      onDisconnect={handleDisconnect}
-      onRefreshNow={fetchNowPlaying}
-    />
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col gap-5"
+    >
+      {/* Connected badge + hint */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div
+          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl w-fit"
+          style={{
+            background: isDark ? "rgba(29,185,84,0.08)" : "rgba(29,185,84,0.06)",
+            border: "1px solid rgba(29,185,84,0.18)",
+          }}
+        >
+          <div className="w-2 h-2 rounded-full bg-[#1DB954] animate-pulse shrink-0" />
+          <span className="text-[12px] font-semibold" style={{ color: "#1DB954" }}>Spotify connected</span>
+        </div>
+        <p className="text-[11px] text-muted-foreground max-w-md leading-relaxed">
+          Focus-only mode: you can start playlists curated for concentration and binaural-style listening.
+          Keep Spotify or this tab active and choose <strong className="text-foreground/80">FocusNest</strong> as the playback device when prompted.
+        </p>
+      </div>
+
+      {/* Compact now-playing row */}
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex-1 flex gap-4 p-4 md:p-5 items-stretch" style={cardStyle}>
+          {/* Cover */}
+          <div
+            className="relative w-[120px] h-[120px] md:w-[140px] md:h-[140px] shrink-0 rounded-xl overflow-hidden"
+            style={{ background: "rgba(29,185,84,0.06)" }}
+          >
+            <AnimatePresence mode="wait">
+              {art ? (
+                <motion.img
+                  key={track?.id}
+                  src={art}
+                  alt=""
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-2">
+                  <SpotifyLogo size={36} className="text-[#1DB954]" />
+                  <p className="text-[10px] text-center text-muted-foreground leading-tight px-1">
+                    Pick a focus playlist below
+                  </p>
+                </div>
+              )}
+            </AnimatePresence>
+            {isPlay && (
+              <div
+                className="absolute top-2 right-2 flex items-end gap-[2px] h-4 px-1.5 py-1 rounded-md"
+                style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}
+              >
+                <EqBars playing color="#1DB954" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">
+            <div className="min-w-0">
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={track?.id ?? "idle"}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="text-base font-semibold text-foreground truncate"
+                >
+                  {track?.name ?? "Nothing playing"}
+                </motion.p>
+              </AnimatePresence>
+              {track?.artists?.[0] ? (
+                <p className="text-xs text-muted-foreground truncate mt-1">
+                  {track.artists.map((a: { name: string }) => a.name).join(", ")}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground/70 mt-1">
+                  Select a curated focus playlist to start
+                </p>
+              )}
+            </div>
+
+            {playerState ? (
+              <SeekBar current={pos} duration={dur} onSeek={(s) => seek(s * 1000)} />
+            ) : (
+              <div
+                className="w-full h-1.5 rounded-full"
+                style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)" }}
+              />
+            )}
+
+            <div className="flex items-center gap-2">
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={prevTrack}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-foreground/50 hover:text-foreground/90 transition-colors"
+                type="button"
+              >
+                <SkipBack className="w-4 h-4" />
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={isPlay ? pause : resume}
+                className="w-11 h-11 rounded-full flex items-center justify-center text-white"
+                style={{ background: "#1DB954", boxShadow: "0 3px 16px rgba(29,185,84,0.35)" }}
+                type="button"
+              >
+                {isPlay ? (
+                  <Pause className="w-5 h-5 fill-white" />
+                ) : (
+                  <Play className="w-5 h-5 fill-white ml-0.5" />
+                )}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.92 }}
+                onClick={nextTrack}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-foreground/50 hover:text-foreground/90 transition-colors"
+                type="button"
+              >
+                <SkipForward className="w-4 h-4" />
+              </motion.button>
+            </div>
+          </div>
+        </div>
+
+        {/* Focus & binaural — single list */}
+        <div className="w-full md:w-[min(100%,320px)] shrink-0 rounded-2xl overflow-hidden flex flex-col max-h-[min(60vh,420px)]" style={cardStyle}>
+          <div
+            className="flex items-center justify-between px-4 py-3 shrink-0"
+            style={{
+              borderBottom: isDark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(83,74,183,0.10)",
+            }}
+          >
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
+                Focus and binaural
+              </p>
+              <p className="text-[10px] text-muted-foreground/55 mt-0.5">Curated Spotify playlists</p>
+            </div>
+            <SpotifyLogo size={14} className="text-[#1DB954] opacity-70" />
+          </div>
+          <div className="flex-1 overflow-y-auto py-1 min-h-[120px]">
+            {loadingCurated ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/40" />
+              </div>
+            ) : curated.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/65 text-center py-8 px-4 leading-relaxed">
+                No Spotify playlists configured yet. Ask an admin to add focus playlists in the catalog.
+              </p>
+            ) : (
+              curated.map((pl) => {
+                const uri = `spotify:playlist:${pl.playlist_id}`;
+                const isActive = playingUri === uri;
+                return (
+                  <motion.button
+                    key={pl.id}
+                    type="button"
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handlePlay(uri)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors"
+                    style={{
+                      background: isActive ? "rgba(29,185,84,0.10)" : "transparent",
+                      border: "none",
+                    }}
+                  >
+                    <div
+                      className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center"
+                      style={{
+                        background: "rgba(29,185,84,0.10)",
+                        border: isActive ? "1px solid rgba(29,185,84,0.35)" : "1px solid rgba(29,185,84,0.12)",
+                      }}
+                    >
+                      <SpotifyLogo size={14} className="text-[#1DB954]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="text-[12px] font-medium truncate"
+                        style={{ color: isActive ? "#1DB954" : "hsl(var(--foreground) / 0.88)" }}
+                      >
+                        {pl.name}
+                      </p>
+                      {pl.description ? (
+                        <p className="text-[10px] text-muted-foreground/55 truncate mt-0.5">{pl.description}</p>
+                      ) : null}
+                    </div>
+                    {isActive && <EqBars playing={!playerState?.paused} color="#1DB954" />}
+                  </motion.button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.div>
   );
 };
 
-export default SpotifyPage;
+// ─── Spotify connect CTA ─────────────────────────────────────────────────────
+
+const SpotifyConnect = () => {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const [connecting, setConnecting] = useState(false);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const res = await fetch("/api/spotify/auth", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to get auth URL");
+      const { url } = await res.json();
+      window.location.href = url;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not connect to Spotify");
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col items-center gap-6 py-16 text-center px-4"
+    >
+      {/* Logo orb */}
+      <div className="relative">
+        <div
+          className="w-24 h-24 rounded-3xl flex items-center justify-center"
+          style={{
+            background: "linear-gradient(135deg, #1DB954, #1ed760)",
+            boxShadow: "0 12px 40px rgba(29,185,84,0.40)",
+          }}
+        >
+          <SpotifyLogo size={48} className="text-white" />
+        </div>
+        <motion.div
+          className="absolute inset-[-8px] rounded-[28px] border border-[#1DB954]/20 pointer-events-none"
+          animate={{ opacity: [0.3, 0.8, 0.3], scale: [1, 1.02, 1] }}
+          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </div>
+
+      <div className="max-w-[320px]">
+        <h2 className="text-xl font-bold tracking-tight text-foreground mb-2">
+          Connect Spotify
+        </h2>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: isDark ? "rgba(148,163,184,1)" : "rgba(26,24,48,0.58)" }}>
+          Link your Spotify Premium account to control playback directly from FocusNest while you focus.
+        </p>
+      </div>
+
+      {/* Feature list */}
+      <div className="flex flex-col gap-2 text-left w-full max-w-[280px]">
+        {[
+          "Control Spotify from this tab",
+          "See current track and album art",
+          "Listen to admin-curated focus and binaural playlists only",
+        ].map((f) => (
+          <div key={f} className="flex items-center gap-2.5">
+            <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(29,185,84,0.15)" }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-[#1DB954]" />
+            </div>
+            <span className="text-[12px]" style={{ color: isDark ? "rgba(203,213,225,0.9)" : "rgba(26,24,48,0.65)" }}>
+              {f}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-col items-center gap-3">
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={handleConnect}
+          disabled={connecting}
+          className="flex items-center gap-2 text-[14px] font-semibold px-7 py-3 rounded-2xl text-white transition-all disabled:opacity-70"
+          style={{
+            background: "#1DB954",
+            boxShadow: "0 4px 20px rgba(29,185,84,0.40)",
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 28px rgba(29,185,84,0.55)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 20px rgba(29,185,84,0.40)"; }}
+        >
+          {connecting ? <Loader2 size={18} className="animate-spin" /> : <SpotifyLogo size={18} />}
+          {connecting ? "Connecting…" : "Connect with Spotify"}
+        </motion.button>
+        <p className="text-[10px]" style={{ color: isDark ? "rgba(148,163,184,0.65)" : "rgba(26,24,48,0.38)" }}>
+          Requires Spotify Premium · OAuth 2.0 secured
+        </p>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Spotify tab (checks connection, renders accordingly) ─────────────────────
+
+const SpotifyTab = () => {
+  const [connected, setConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/spotify/token", { credentials: "include" })
+      .then(r => setConnected(r.ok))
+      .catch(() => setConnected(false));
+  }, []);
+
+  if (connected === null) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40" />
+      </div>
+    );
+  }
+
+  if (!connected) return <SpotifyConnect />;
+  return <SpotifyPlayerView />;
+};
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+const MusicPage = () => {
+  const [source, setSource] = useState<Source>("free");
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+
+  // Handle OAuth redirect params (?connected=true or ?error=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") === "true") {
+      setSource("spotify");
+      toast.success("Spotify connected! Premium playback is ready.");
+      window.history.replaceState({}, "", "/spotify");
+    } else if (params.get("error")) {
+      const err = params.get("error");
+      toast.error(err === "access_denied"
+        ? "Spotify connection cancelled."
+        : `Spotify connection failed: ${err}`);
+      window.history.replaceState({}, "", "/spotify");
+    }
+  }, []);
+
+  return (
+    <div className="relative max-w-5xl mx-auto pb-10">
+      <div className="relative z-10 flex flex-col gap-6">
+
+        {/* ── Header ── */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="flex items-center justify-between pt-1"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{
+                background: source === "spotify" ? "rgba(29,185,84,0.12)" : "hsl(var(--primary) / 0.12)",
+                border: source === "spotify" ? "1px solid rgba(29,185,84,0.20)" : "1px solid hsl(var(--primary) / 0.18)",
+              }}
+            >
+              {source === "spotify"
+                ? <SpotifyLogo size={18} className="text-[#1DB954]" />
+                : <Music2 className="w-4.5 h-4.5" style={{ color: "hsl(var(--primary))", width: 18, height: 18 }} />}
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-foreground tracking-tight">Focus Sounds</h1>
+              <p className="text-[10px] text-muted-foreground/65 tracking-widest uppercase">
+                {source === "spotify" ? "Spotify Connect" : "Binaural · Deep Focus"}
+              </p>
+            </div>
+          </div>
+
+          <SourceToggle active={source} onChange={setSource} />
+        </motion.div>
+
+        {/* ── Content ── */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={source}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.25 }}
+          >
+            {source === "free" ? <FreePlayer /> : <SpotifyTab />}
+          </motion.div>
+        </AnimatePresence>
+
+      </div>
+    </div>
+  );
+};
+
+export default MusicPage;

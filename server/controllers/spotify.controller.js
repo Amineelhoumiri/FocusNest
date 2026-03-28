@@ -128,7 +128,7 @@ const handleCallback = async (req, res) => {
         // Step 5: Upsert — manual SELECT+INSERT/UPDATE avoids needing a UNIQUE
         // constraint on user_id (the schema only has a FK, not UNIQUE).
         try {
-            const SCOPES_STR = "user-read-currently-playing,user-read-playback-state,user-modify-playback-state,playlist-read-private,playlist-read-collaborative,user-read-private";
+            const SCOPES_STR = "user-read-private,user-read-currently-playing,user-read-playback-state,user-modify-playback-state,playlist-read-private,playlist-read-collaborative,streaming";
             const existing = await pool.query(
                 `SELECT spotify_acc_id FROM spotify_accounts WHERE user_id = $1`,
                 [userId]
@@ -192,7 +192,14 @@ const getStatus = async (req, res) => {
             // Token may be stale — still report connected
         }
 
-        return res.json({ connected: true, display_name: displayName });
+        // Check if the stored token has the scopes needed for playback
+        const scopeRow = await pool.query(
+            `SELECT scopes FROM spotify_accounts WHERE user_id = $1`, [req.user.user_id]
+        );
+        const scopes = scopeRow.rows[0]?.scopes || "";
+        const needsReauth = !scopes.includes("streaming") || !scopes.includes("user-modify-playback-state");
+
+        return res.json({ connected: true, display_name: displayName, needs_reauth: needsReauth });
     } catch (err) {
         console.error("getStatus error:", err.message);
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to get Spotify status" });
@@ -265,12 +272,65 @@ const playPlaylist = async (req, res) => {
             return res.status(400).json({ error: "VALIDATION_ERROR", message: "context_uri is required." });
         }
 
+        const playlistIdMatch = String(context_uri).match(/^spotify:playlist:([A-Za-z0-9]+)$/);
+        if (!playlistIdMatch) {
+            return res.status(400).json({
+                error: "VALIDATION_ERROR",
+                message: "Only spotify:playlist: URIs are supported.",
+            });
+        }
+
+        const curatedCheck = await pool.query(
+            `SELECT 1 FROM curated_playlists WHERE source = $1 AND spotify_playlist_id = $2`,
+            ["spotify", playlistIdMatch[1]]
+        );
+        if (curatedCheck.rows.length === 0) {
+            return res.status(403).json({
+                error: "NOT_ALLOWED",
+                message: "Only focus curated playlists can be played from FocusNest.",
+            });
+        }
+
         const accessToken = await getValidAccessToken(req.user.user_id);
         if (!accessToken) {
             return res.status(403).json({ error: "NOT_CONNECTED", message: "Spotify not connected." });
         }
 
-        await spotifyService.playContext(accessToken, context_uri, device_id || null);
+        console.log(`🎵 playPlaylist — context_uri: ${context_uri} | device_id: ${device_id || "none"}`);
+
+        // Strategy for Web Playback SDK devices:
+        // 1. Try playing directly on the SDK device (fastest path)
+        // 2. If that fails, transfer playback to the device and retry
+        // 3. If transfer also fails, play without a specific device (uses Spotify's active device)
+        let played = false;
+
+        // Attempt 1: play directly on the SDK device
+        try {
+            await spotifyService.playContext(accessToken, context_uri, device_id || null);
+            played = true;
+            console.log("🎵 playPlaylist: success on attempt 1");
+        } catch (err1) {
+            console.warn("🎵 playPlaylist attempt 1 failed:", err1.message);
+        }
+
+        // Attempt 2: transfer first, wait, then retry
+        if (!played && device_id) {
+            try {
+                await spotifyService.transferPlayback(accessToken, device_id);
+                await new Promise((r) => setTimeout(r, 1200));
+                await spotifyService.playContext(accessToken, context_uri, device_id);
+                played = true;
+                console.log("🎵 playPlaylist: success on attempt 2 (after transfer)");
+            } catch (err2) {
+                console.warn("🎵 playPlaylist attempt 2 failed:", err2.message);
+            }
+        }
+
+        // Attempt 3: play without specifying device (falls back to Spotify's active device)
+        if (!played) {
+            await spotifyService.playContext(accessToken, context_uri, null);
+            console.log("🎵 playPlaylist: success on attempt 3 (no device_id)");
+        }
         return res.status(204).send();
     } catch (err) {
         console.error("playPlaylist error:", err.message);
@@ -290,4 +350,80 @@ const disconnect = async (req, res) => {
     }
 };
 
-module.exports = { getAuthUrl, handleCallback, getStatus, getNowPlaying, getPlaylists, playPlaylist, disconnect };
+// ─── 8. GET /api/spotify/token ────────────────────────────────────────────────
+// Returns a valid, auto-refreshed access token for the Web Playback SDK.
+
+const getToken = async (req, res) => {
+    try {
+        const accessToken = await getValidAccessToken(req.user.user_id);
+        if (!accessToken) {
+            return res.status(403).json({ error: "NOT_CONNECTED", message: "Spotify not connected." });
+        }
+        return res.json({ access_token: accessToken });
+    } catch (err) {
+        console.error("getToken error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to get token" });
+    }
+};
+
+// ─── 9. GET /api/spotify/curated ─────────────────────────────────────────────
+// Returns the admin-curated list of binaural playlists.
+
+const getCurated = async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, spotify_playlist_id, name, description, image_url, created_at
+             FROM curated_playlists ORDER BY created_at DESC`
+        );
+        return res.json(result.rows);
+    } catch (err) {
+        console.error("getCurated error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to get curated playlists" });
+    }
+};
+
+// ─── 10. POST /api/spotify/curated ───────────────────────────────────────────
+// Admin: add a playlist to the curated list.
+
+const addCurated = async (req, res) => {
+    try {
+        const { spotify_playlist_id, name, description, image_url } = req.body;
+        if (!spotify_playlist_id || !name) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "spotify_playlist_id and name are required." });
+        }
+        // Accept full URL (https://open.spotify.com/playlist/ID) or bare ID
+        const playlistId = spotify_playlist_id.includes("spotify.com/playlist/")
+            ? spotify_playlist_id.split("playlist/")[1].split("?")[0]
+            : spotify_playlist_id.replace("spotify:playlist:", "");
+
+        const result = await pool.query(
+            `INSERT INTO curated_playlists (spotify_playlist_id, name, description, image_url, added_by)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (spotify_playlist_id) DO UPDATE SET name=$2, description=$3, image_url=$4
+             RETURNING *`,
+            [playlistId, name, description || null, image_url || null, req.user.user_id]
+        );
+        return res.status(201).json(result.rows[0]);
+    } catch (err) {
+        console.error("addCurated error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to add curated playlist" });
+    }
+};
+
+// ─── 11. DELETE /api/spotify/curated/:id ─────────────────────────────────────
+// Admin: remove a playlist from the curated list.
+
+const removeCurated = async (req, res) => {
+    try {
+        await pool.query(`DELETE FROM curated_playlists WHERE id = $1`, [req.params.id]);
+        return res.status(204).send();
+    } catch (err) {
+        console.error("removeCurated error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to remove curated playlist" });
+    }
+};
+
+module.exports = {
+    getAuthUrl, handleCallback, getStatus, getNowPlaying, getPlaylists, playPlaylist, disconnect,
+    getToken, getCurated, addCurated, removeCurated,
+};
