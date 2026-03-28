@@ -1,6 +1,7 @@
 require("dotenv").config();
 const { betterAuth } = require("better-auth");
 const pool = require("./config/db");
+const { getTrustedOrigins } = require("./config/allowedOrigins");
 
 const auth = betterAuth({
   // ── Database ────────────────────────────────────────────────
@@ -106,10 +107,7 @@ const auth = betterAuth({
     },
   },
 
-  trustedOrigins: [
-    process.env.CLIENT_URL || "http://localhost:5173",
-    "http://localhost:8080",
-  ],
+  trustedOrigins: getTrustedOrigins(),
 });
 
 module.exports = auth;

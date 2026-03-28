@@ -1,0 +1,69 @@
+# Deploy to AWS: ECR push + ECS rolling update (OIDC — no long-lived AWS keys in GitHub)
+#
+# Prerequisites (AWS console / IaC):
+#   - ECR repository (e.g. focusnest)
+#   - ECS cluster + service + task definition (container port 3000, env/secrets from Secrets Manager)
+#   - IAM role for GitHub OIDC: trust policy for token.actions.githubusercontent.com, allow ecr:* push + ecs:UpdateService
+#
+# GitHub repository secrets (example names):
+#   AWS_ROLE_ARN          — IAM role ARN for OIDC
+#   AWS_REGION            — e.g. eu-west-2
+#   ECR_REPOSITORY        — repo name
+#   ECS_CLUSTER           — cluster name
+#   ECS_SERVICE           — service name
+# Optional:
+#   ECS_TASK_DEFINITION   — family name if you use aws ecs register-task-definition in a custom script
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Push to ECR and redeploy ECS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: meta
+        run: |
+          echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
+            ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+          build-args: |
+            VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
+
+      - name: Force new ECS deployment
+        run: |
+          aws ecs update-service \
+            --cluster "${{ secrets.ECS_CLUSTER }}" \
+            --service "${{ secrets.ECS_SERVICE }}" \
+            --force-new-deployment \
+            --region "${{ secrets.AWS_REGION }}"
