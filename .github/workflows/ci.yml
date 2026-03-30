@@ -181,7 +181,7 @@ jobs:
           exit-code: "0"
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
-      # Blocking: fail on CRITICAL + HIGH in the final image
+      # Blocking: fail only on HIGH/CRITICAL with an available fix (unfixed = nothing we can do)
       - name: Trivy — gate HIGH and CRITICAL
         uses: aquasecurity/trivy-action@v0.35.0
         with:
@@ -190,6 +190,7 @@ jobs:
           output: trivy-results.sarif
           exit-code: "1"
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
 
       - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
