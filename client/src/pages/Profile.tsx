@@ -98,8 +98,8 @@ const Profile = () => {
             toast.success("Password changed successfully.");
             setShowPasswordModal(false);
             setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
-        } catch (err: any) {
-            toast.error(err.message || "Failed to change password.");
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : "Failed to change password.");
         } finally {
             setIsChangingPassword(false);
         }
@@ -144,8 +144,8 @@ const Profile = () => {
             }
             toast.success("Account deleted. Goodbye.");
             window.location.href = "/";
-        } catch (err: any) {
-            toast.error(err.message || "Failed to delete account.");
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : "Failed to delete account.");
         } finally {
             setIsNuking(false);
             setShowNukeModal(false);

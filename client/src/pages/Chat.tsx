@@ -84,6 +84,22 @@ interface Message {
   suggestedTask?: { id: string; title: string }
 }
 
+interface TaskApiRow {
+  task_id: string
+  task_name: string
+  subtasks?: Array<{ is_completed?: boolean }>
+}
+
+interface ChatHistoryRow {
+  role: string
+  content: string
+}
+
+interface BreakdownSubtaskRow {
+  subtask_name: string
+  energy_level: string
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(mood: string, tasks: Task[]): string {
@@ -140,12 +156,17 @@ const Chat = () => {
   // Fetch tasks for AI context
   useEffect(() => {
     fetch("/api/tasks", { credentials: "include" })
-      .then(r => r.ok ? r.json() : [])
-      .then((data: any[]) => setTasks(data.map(t => ({
-        id: t.task_id,
-        title: t.task_name,
-        subtasks: t.subtasks?.map((st: any) => ({ columnId: st.is_completed ? 'done' : 'todo' })) || []
-      }))))
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: TaskApiRow[]) =>
+        setTasks(
+          data.map((t) => ({
+            id: t.task_id,
+            title: t.task_name,
+            subtasks:
+              t.subtasks?.map((st) => ({ columnId: st.is_completed ? "done" : "todo" })) || [],
+          })),
+        ),
+      )
       .catch(() => {})
   }, [])
 
@@ -155,10 +176,10 @@ const Chat = () => {
     if (!sid) return
     fetch(`/api/chat/${sid}`, { credentials: "include" })
       .then(r => r.ok ? r.json() : [])
-      .then((data: any[]) => {
+      .then((data: ChatHistoryRow[]) => {
         const loaded: Message[] = data
-          .filter(m => m.role === "user" || m.role === "assistant")
-          .map(m => ({ role: m.role === "assistant" ? "ai" : "user", content: m.content }))
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role === "assistant" ? "ai" : "user", content: m.content }))
         setMessages(loaded)
         setChatSessionId(sid)
       })
@@ -233,7 +254,9 @@ const Chat = () => {
         aiText = result.content ?? ""
       } else if (type === "breakdown") {
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +
-          (result.subtasks || []).map((st: any, i: number) => `${i + 1}. **${st.subtask_name}** _(${st.energy_level})_`).join("\n") +
+          (result.subtasks || [])
+            .map((st: BreakdownSubtaskRow, i: number) => `${i + 1}. **${st.subtask_name}** _(${st.energy_level})_`)
+            .join("\n") +
           (result.chat_closing ? "\n\n" + result.chat_closing : "")
       } else if (type === "prioritize") {
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +

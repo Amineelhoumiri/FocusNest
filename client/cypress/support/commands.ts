@@ -16,6 +16,8 @@ Cypress.Commands.add("loginViaApi", (email: string, password: string) => {
   });
 });
 
+/* Cypress typings augment `Chainable` via a global `namespace`; ESLint disallows namespaces otherwise. */
+/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
   namespace Cypress {
     interface Chainable {
@@ -23,3 +25,4 @@ declare global {
     }
   }
 }
+/* eslint-enable @typescript-eslint/no-namespace */
