@@ -1,18 +1,104 @@
 # FocusNest
 A SaaS-ready Productivity Management System designed for students. Features intelligent resource nesting, distraction blocking, and focus analytics. Built with a dual-role architecture (Admin/Customer) as a 3rd-year Software engineering Dissertation project.
 
-## Docker (API + SPA in one container)
+## Quick start (Docker — runs the whole app)
 
-Build and run locally (requires `server/.env` with database and secrets):
+This repo supports running **API + SPA in one container** (recommended for simplest local run).
+
+### Prerequisites
+- **Docker Desktop**
+- A PostgreSQL database (local Postgres or AWS RDS)
+
+### 1) Configure environment
+Create `server/.env` with your database and auth secrets.
+
+Minimum required for the server to start:
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+
+Common local settings:
+- `DB_SSL=false` (disable SSL for local Postgres)
+- `CLIENT_URL=http://localhost:3000`
+- `ALLOWED_ORIGINS=http://localhost:3000`
+
+### 2) Run
+Build and start:
 
 ```bash
 docker compose up --build
 ```
 
-Open `http://localhost:3000`. Set `ALLOWED_ORIGINS` and `CLIENT_URL` in production to your public HTTPS origin.
+Open `http://localhost:3000`.
 
-- **Health:** `GET /api/health` (liveness) and `GET /api/ready` (database check).
-- **GitHub Actions:** `.github/workflows/ci.yml` runs tests, build, security scans, and Docker build. `.github/workflows/deploy.yml` pushes to ECR and starts an **App Runner** deployment when `APPRUNNER_SERVICE_ARN` is set (or rely on App Runner automatic deploy on `:latest`).
+### Useful endpoints
+- **Health**: `GET /api/health` (liveness) and `GET /api/ready` (database readiness check).
+
+---
+
+## Local dev (separate client + server)
+
+### Prerequisites
+- Node.js (project uses Node 22 in CI)
+- PostgreSQL database
+
+### 1) Server (port 3000)
+
+```bash
+cd server
+npm ci
+# ensure server/.env exists
+npm run dev
+```
+
+Server listens on `http://localhost:3000`.
+
+### 2) Client (run on port 8080 for Cypress)
+
+```bash
+cd client
+npm ci
+npm run dev -- --port 8080
+```
+
+Client dev server: `http://localhost:8080`
+
+---
+
+## Tests
+
+### Server unit/integration (Jest)
+
+```bash
+cd server
+npm test
+```
+
+### Client unit (Vitest)
+
+```bash
+cd client
+npm test
+```
+
+### Cypress E2E
+Cypress expects:
+- Client at `http://localhost:8080`
+- Server at `http://localhost:3000`
+
+In one terminal, run server. In a second terminal, run client on `8080`, then:
+
+```bash
+cd client
+npm run cypress:run
+```
+
+---
+
+## CI/CD overview
+
+- **CI**: `.github/workflows/ci.yml` runs server tests, client build/tests, and security scans (CodeQL/Trivy/etc).
+- **Deploy**: `.github/workflows/deploy.yml` builds and pushes the Docker image to **ECR** and (optionally) triggers an **App Runner** deployment.
+
+More details: see `DEPLOYMENT.md`.
 
 ## Deploy to AWS (step by step — App Runner + RDS)
 
