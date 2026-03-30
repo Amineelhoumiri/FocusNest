@@ -78,6 +78,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           scanners: vuln
+          trivyignores: .trivyignore
 
       # Only push to ECR after the image is confirmed clean
       - name: Push to ECR

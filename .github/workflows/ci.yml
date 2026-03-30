@@ -189,6 +189,7 @@ jobs:
 
       # Blocking: fail only on actionable HIGH/CRITICAL vuln findings.
       # Use table output so the failing vulnerabilities are visible in the CI log.
+      # Uses .trivyignore for team-reviewed, context-specific accepts (see file comments).
       - name: Trivy — gate HIGH and CRITICAL
         uses: aquasecurity/trivy-action@v0.35.0
         with:
@@ -198,6 +199,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           scanners: vuln
+          trivyignores: .trivyignore
 
       # Non-blocking: upload SARIF for GitHub Security tab (best-effort)
       - name: Trivy — SARIF (upload)
@@ -212,6 +214,7 @@ jobs:
           ignore-unfixed: true
           scanners: vuln
           limit-severities-for-sarif: true
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
