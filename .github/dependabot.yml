@@ -16,3 +16,10 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
+
+  # Keeps the pinned node:22-alpine digest current.
+  # When Alpine releases a patched image, Dependabot opens a PR to bump the digest.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

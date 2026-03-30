@@ -10,6 +10,12 @@ permissions:
   contents: read
   pull-requests: read
 
+# Cancel any in-progress run for the same ref so a push to dev with an open PR
+# doesn't fire two concurrent runs that race on the Docker layer cache.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ─── Block PRs that introduce vulnerable dependencies (GitHub Dependency Graph) ───
   dependency-review:
@@ -139,7 +145,6 @@ jobs:
 
       - name: ESLint
         run: npm run lint
-        continue-on-error: true
 
       - name: npm audit — CRITICAL (blocking)
         run: npm audit --audit-level=critical

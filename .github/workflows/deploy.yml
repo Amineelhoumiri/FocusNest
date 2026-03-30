@@ -53,17 +53,39 @@ jobs:
         run: |
           echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build locally first so Trivy can scan before anything reaches ECR
+      - name: Build image (local)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
-            ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+          push: false
+          load: true
+          tags: focusnest:deploy
           build-args: |
             VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
+
+      # Gate: block the deploy if the image has fixable HIGH/CRITICAL CVEs
+      - name: Trivy — security gate
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: focusnest:deploy
+          format: table
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln
+
+      # Only push to ECR after the image is confirmed clean
+      - name: Push to ECR
+        run: |
+          docker tag focusnest:deploy ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
+          docker tag focusnest:deploy ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+          docker push ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
+          docker push ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
 
       - name: Start App Runner deployment
         env:
