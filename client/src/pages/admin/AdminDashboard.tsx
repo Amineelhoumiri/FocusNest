@@ -2,8 +2,18 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Save, Trash2, Eye, ShieldAlert, FileText, Database, MessageSquare, Users } from "lucide-react";
+import { Loader2, Save, Trash2, Eye, ShieldAlert, FileText, Database, MessageSquare, Users, Music, Plus, Waves, Youtube } from "lucide-react";
 import { toast } from "sonner";
+
+interface CuratedPlaylist {
+    id: number;
+    youtube_playlist_id: string;
+    playlist_id: string;
+    name: string;
+    description: string | null;
+    image_url: string | null;
+    source: "youtube" | "spotify";
+}
 
 interface UsageLog {
     id: number;
@@ -37,11 +47,14 @@ const AdminDashboard = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
 
-    const [activeTab, setActiveTab] = useState<"usage" | "chat" | "prompts">("usage");
+    const [activeTab, setActiveTab] = useState<"usage" | "chat" | "prompts" | "playlists">("usage");
 
     const [usageLogs, setUsageLogs] = useState<UsageLog[]>([]);
     const [chatStats, setChatStats] = useState<ChatTokenStats | null>(null);
     const [prompts, setPrompts] = useState<Prompt[]>([]);
+    const [curated, setCurated] = useState<CuratedPlaylist[]>([]);
+    const [newPlaylist, setNewPlaylist] = useState<{ youtube_playlist_id: string; name: string; description: string; source: "youtube" | "spotify" }>({ youtube_playlist_id: "", name: "", description: "", source: "youtube" });
+    const [isAddingPlaylist, setIsAddingPlaylist] = useState(false);
 
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState<string | null>(null);
@@ -59,20 +72,57 @@ const AdminDashboard = () => {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const [usageRes, chatRes, promptsRes] = await Promise.all([
+            const [usageRes, chatRes, promptsRes, curatedRes] = await Promise.all([
                 fetch("/api/admin/usage"),
                 fetch("/api/admin/chat-tokens"),
                 fetch("/api/admin/prompts"),
+                fetch("/api/music/curated", { credentials: "include" }),
             ]);
 
             if (usageRes.ok) setUsageLogs(await usageRes.json());
             if (chatRes.ok) setChatStats(await chatRes.json());
             if (promptsRes.ok) setPrompts(await promptsRes.json());
+            if (curatedRes.ok) setCurated(await curatedRes.json());
 
         } catch (err) {
             toast.error("Failed to load admin data");
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleAddPlaylist = async () => {
+        if (!newPlaylist.youtube_playlist_id.trim() || !newPlaylist.name.trim()) {
+            toast.error("Playlist ID/URL and name are required.");
+            return;
+        }
+        setIsAddingPlaylist(true);
+        try {
+            const res = await fetch("/api/music/curated", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newPlaylist),
+            });
+            if (!res.ok) throw new Error((await res.json()).message);
+            toast.success("Playlist added!");
+            setNewPlaylist({ youtube_playlist_id: "", name: "", description: "", source: "youtube" });
+            fetchData();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to add playlist");
+        } finally {
+            setIsAddingPlaylist(false);
+        }
+    };
+
+    const handleRemovePlaylist = async (id: number, name: string) => {
+        if (!confirm(`Remove "${name}" from curated playlists?`)) return;
+        try {
+            await fetch(`/api/music/curated/${id}`, { method: "DELETE", credentials: "include" });
+            toast.success("Playlist removed.");
+            fetchData();
+        } catch {
+            toast.error("Failed to remove playlist.");
         }
     };
 
@@ -141,7 +191,7 @@ const AdminDashboard = () => {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 p-1 bg-surface-raised rounded-xl max-w-md mb-6">
+            <div className="flex gap-2 p-1 bg-surface-raised rounded-xl max-w-2xl mb-6">
                 <button
                     onClick={() => setActiveTab("usage")}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${activeTab === "usage" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
@@ -159,6 +209,12 @@ const AdminDashboard = () => {
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${activeTab === "prompts" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
                     <FileText className="w-4 h-4" /> Prompts
+                </button>
+                <button
+                    onClick={() => setActiveTab("playlists")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${activeTab === "playlists" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                    <Music className="w-4 h-4" /> Playlists
                 </button>
             </div>
 
@@ -358,6 +414,121 @@ const AdminDashboard = () => {
                     </div>
                 </motion.div>
             )}
+            {/* Playlists Tab */}
+            {activeTab === "playlists" && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 max-w-2xl">
+
+                    <div className="flex items-center gap-2 p-4 rounded-xl text-sm"
+                        style={{ background: "hsl(174 55% 40% / 0.08)", border: "1px solid hsl(174 55% 40% / 0.2)", color: "hsl(174 55% 40%)" }}>
+                        <Waves className="w-4 h-4 shrink-0" />
+                        <p>Add YouTube playlists (free, no account needed) or Spotify playlists (shown to Premium users).</p>
+                    </div>
+
+                    {/* Add form */}
+                    <div className="glass-card rounded-2xl p-5 space-y-3 border border-border/50">
+                        <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-foreground">Add playlist</p>
+                            {/* Source toggle */}
+                            <div className="flex items-center gap-1 p-1 rounded-lg bg-surface-raised">
+                                <button
+                                    onClick={() => setNewPlaylist((p) => ({ ...p, source: "youtube" }))}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${newPlaylist.source === "youtube" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                >
+                                    <Youtube className="w-3.5 h-3.5 text-red-500" />
+                                    YouTube
+                                </button>
+                                <button
+                                    onClick={() => setNewPlaylist((p) => ({ ...p, source: "spotify" }))}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${newPlaylist.source === "spotify" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                >
+                                    <span className="w-3.5 h-3.5 flex items-center justify-center" style={{ color: "#1DB954" }}>♫</span>
+                                    Spotify
+                                </button>
+                            </div>
+                        </div>
+                        <input
+                            value={newPlaylist.youtube_playlist_id}
+                            onChange={(e) => setNewPlaylist((p) => ({ ...p, youtube_playlist_id: e.target.value }))}
+                            placeholder={newPlaylist.source === "spotify"
+                                ? "Spotify playlist URL, URI, or ID (e.g. spotify:playlist:37i9dQZF1DX...)"
+                                : "YouTube playlist URL or ID (e.g. PLxxxxxxx or https://youtube.com/playlist?list=PLxxxxxxx)"}
+                            className="w-full rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all"
+                        />
+                        <input
+                            value={newPlaylist.name}
+                            onChange={(e) => setNewPlaylist((p) => ({ ...p, name: e.target.value }))}
+                            placeholder="Display name (e.g. 40Hz Brain Food)"
+                            className="w-full rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all"
+                        />
+                        <input
+                            value={newPlaylist.description}
+                            onChange={(e) => setNewPlaylist((p) => ({ ...p, description: e.target.value }))}
+                            placeholder="Short description (optional)"
+                            className="w-full rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all"
+                        />
+                        <button
+                            onClick={handleAddPlaylist}
+                            disabled={isAddingPlaylist}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50 transition-all"
+                            style={{ background: "hsl(var(--primary))" }}
+                        >
+                            {isAddingPlaylist ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                            Add Playlist
+                        </button>
+                    </div>
+
+                    {/* Curated list */}
+                    <div className="glass-card rounded-2xl border border-border/50 overflow-hidden">
+                        <div className="px-5 py-3 border-b border-border/50 bg-surface-raised/30 flex items-center gap-2">
+                            <Music className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-sm font-semibold text-foreground">
+                                {curated.length} curated playlist{curated.length !== 1 ? "s" : ""}
+                            </span>
+                        </div>
+                        {curated.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-10">No playlists yet. Add one above.</p>
+                        ) : (
+                            <div className="divide-y divide-border/30">
+                                {curated.map((pl) => (
+                                    <div key={pl.id} className="flex items-center gap-3 px-5 py-3">
+                                        <div
+                                            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                                            style={pl.source === "spotify"
+                                                ? { background: "rgba(29,185,84,0.10)", border: "1px solid rgba(29,185,84,0.20)" }
+                                                : { background: "hsl(174 55% 40% / 0.1)", border: "1px solid hsl(174 55% 40% / 0.2)" }}
+                                        >
+                                            {pl.source === "spotify"
+                                                ? <span className="text-sm font-bold" style={{ color: "#1DB954" }}>♫</span>
+                                                : <Youtube className="w-4 h-4 text-red-500" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-sm font-medium text-foreground truncate">{pl.name}</p>
+                                                <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md uppercase"
+                                                    style={pl.source === "spotify"
+                                                        ? { background: "rgba(29,185,84,0.12)", color: "#1DB954" }
+                                                        : { background: "rgba(239,68,68,0.10)", color: "#ef4444" }}>
+                                                    {pl.source}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground/50 truncate">
+                                                {pl.youtube_playlist_id}{pl.description ? ` · ${pl.description}` : ""}
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleRemovePlaylist(pl.id, pl.name)}
+                                            className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </motion.div>
+            )}
+
         </div>
     );
 };

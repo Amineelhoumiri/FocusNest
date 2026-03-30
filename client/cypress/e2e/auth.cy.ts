@@ -11,8 +11,10 @@ describe("Registration flow", () => {
 
     // Step 1: fill registration form
     cy.get('input[type="text"]').first().type(TEST_NAME);
+    cy.get('input[type="date"]').type("2000-01-15");
     cy.get('input[type="email"]').type(TEST_EMAIL);
     cy.get('input[type="password"]').first().type(TEST_PASSWORD);
+    cy.get('input[type="password"]').last().type(TEST_PASSWORD);
 
     // Accept privacy (step 2)
     cy.contains("button", /next|continue/i).click();
@@ -24,11 +26,12 @@ describe("Registration flow", () => {
 
 describe("Login flow", () => {
   before(() => {
-    // Create account via API so tests don't depend on registration E2E
-    cy.request("POST", "http://localhost:3000/api/auth/sign-up/email", {
-      email: "login_e2e@focusnest.dev",
-      password: "TestPass123!",
-      name: "Login E2E",
+    // Create account via proxy — failOnStatusCode:false so re-runs don't fail
+    cy.request({
+      method: "POST",
+      url: "http://localhost:8080/api/auth/sign-up/email",
+      body: { email: "login_e2e@focusnest.dev", password: "TestPass123!", name: "Login E2E" },
+      failOnStatusCode: false,
     });
   });
 
@@ -70,8 +73,10 @@ describe("Logout flow", () => {
     cy.visit("/dashboard");
     cy.url({ timeout: 10000 }).should("include", "/dashboard");
 
-    // Click logout (in navbar/sidebar)
-    cy.contains("button", /log out|sign out/i).click();
+    // Open the avatar dropdown (the button with aria-haspopup="menu" in the navbar)
+    cy.get('[aria-haspopup="menu"]').last().click();
+    // Logout option renders as a menu item, not a plain <button>
+    cy.contains(/log out/i).click();
     cy.url({ timeout: 5000 }).should("include", "/login");
   });
 });

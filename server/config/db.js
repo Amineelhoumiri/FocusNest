@@ -8,9 +8,9 @@ const pool = new Pool({
     database: process.env.DB_NAME,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    ssl: {
-        rejectUnauthorized: false  // Required for AWS RDS SSL connection
-    }
+    // DB_SSL=false disables SSL (use for local PG or RDS without SSL enforcement)
+    // Omit or set DB_SSL=true for AWS RDS with SSL enabled
+    ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
 });
 
 // Test database connection on startup

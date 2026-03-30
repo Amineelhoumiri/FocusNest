@@ -16,27 +16,39 @@ describe("Task management", () => {
 
   beforeEach(() => {
     cy.loginViaApi("tasks_e2e@focusnest.dev", "TestPass123!");
-    cy.visit("/tasks");
+    // Use onBeforeLoad so gdpr-consent is set before React mounts the CookieBanner
+    cy.visit("/tasks", {
+      onBeforeLoad: (win) => { win.localStorage.setItem("gdpr-consent", "accepted"); },
+    });
     cy.url({ timeout: 10000 }).should("include", "/tasks");
   });
 
   it("creates a new task and it appears on the board", () => {
-    // Open create task modal/form
-    cy.contains("button", /new task|add task|\+/i).click();
+    // Intercept the POST so we can wait for it to complete
+    cy.intercept("POST", "/api/tasks").as("createTask");
 
-    cy.get('input[placeholder*="task" i]').type(TASK_NAME);
-
-    // Select energy level if present
+    // Close any open dialog by clicking its backdrop, then open a fresh one
     cy.get("body").then(($body) => {
-      if ($body.find('[data-testid="energy-level"]').length) {
-        cy.get('[data-testid="energy-level"]').click();
-        cy.contains("High").click();
-      }
+      const overlay = $body[0].querySelector('.fixed.inset-0.z-50[style*="rgba(0, 0, 0"]');
+      if (overlay) (overlay as HTMLElement).click();
     });
+    cy.wait(300);
 
-    cy.contains("button", /create|save|add/i).last().click();
+    // Open create task modal/form
+    cy.contains("button", /add task/i).then(($btn) => $btn[0].click());
 
-    cy.contains(TASK_NAME, { timeout: 5000 }).should("be.visible");
+    // Wait for input and type the task name
+    cy.get('input[placeholder="Task name"]')
+      .should("be.visible")
+      .clear()
+      .type(TASK_NAME)
+      .should("have.value", TASK_NAME);
+
+    cy.contains("button", /create task/i).click();
+
+    // Wait for the API call to finish, then the task should appear
+    cy.wait("@createTask").its("response.statusCode").should("be.oneOf", [200, 201]);
+    cy.contains(TASK_NAME, { timeout: 8000 }).should("be.visible");
   });
 
   it("deletes a task from the board", () => {
@@ -62,7 +74,9 @@ describe("Task management", () => {
 describe("Session (focus timer)", () => {
   beforeEach(() => {
     cy.loginViaApi("tasks_e2e@focusnest.dev", "TestPass123!");
-    cy.visit("/sessions");
+    cy.visit("/sessions", {
+      onBeforeLoad: (win) => { win.localStorage.setItem("gdpr-consent", "accepted"); },
+    });
     cy.url({ timeout: 10000 }).should("include", "/sessions");
   });
 

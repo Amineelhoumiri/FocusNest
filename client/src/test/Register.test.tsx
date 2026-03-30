@@ -70,7 +70,7 @@ describe("Register page", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/privacy/i)).toBeTruthy();
+      expect(screen.getAllByText(/privacy/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -82,7 +82,7 @@ describe("Register page", () => {
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
-    await waitFor(() => screen.getByText(/privacy/i));
+    await waitFor(() => screen.getAllByText(/privacy/i));
 
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
 
@@ -104,7 +104,7 @@ describe("Register page", () => {
     const { container } = renderRegister();
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => screen.getByText(/privacy/i));
+    await waitFor(() => screen.getAllByText(/privacy/i));
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
 
     await waitFor(() => {
@@ -116,7 +116,7 @@ describe("Register page", () => {
     const { container } = renderRegister();
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => screen.getByText(/privacy/i));
+    await waitFor(() => screen.getAllByText(/privacy/i));
 
     // Back button is icon-only (ArrowLeft), first button in the footer row
     const buttons = screen.getAllByRole("button");

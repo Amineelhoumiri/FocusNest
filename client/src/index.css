@@ -1,7 +1,7 @@
 /* src/index.css */
 /* FocusNest — Design System */
 
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -38,8 +38,8 @@
     --text-muted: 245 10% 50%;
     --focus-blue: 221 83% 53%;
     --success: 152 60% 36%;
-    --high-energy: 18 85% 54%;
-    --low-energy: 152 60% 36%;
+    --high-energy: 28 90% 55%;
+    --low-energy: 174 55% 40%;
     --zen-teal: 174 48% 42%;
     --ai-purple: 258 76% 58%;
 
@@ -88,8 +88,8 @@
     --text-muted: 240 6% 36%;
     --focus-blue: 221 80% 62%;
     --success: 152 60% 38%;
-    --high-energy: 18 85% 56%;
-    --low-energy: 152 60% 38%;
+    --high-energy: 28 90% 55%;
+    --low-energy: 174 55% 40%;
     --zen-teal: 174 50% 42%;
     --ai-purple: 258 72% 68%;
 
@@ -137,22 +137,28 @@
 
 @layer components {
   .font-display {
-    font-family: 'DM Sans', system-ui, sans-serif;
+    font-family: 'Syne', system-ui, sans-serif;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
   }
 
+  .card {
+    background: hsl(var(--card) / 0.78);
+    border: 1px solid hsl(var(--border) / 0.5);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    box-shadow: var(--card-shadow);
+    border-radius: var(--radius);
+  }
+
+  /* Keep glass-card as alias for backwards compat */
   .glass-card {
-    @apply bg-card border border-border/50 rounded-2xl;
+    background: hsl(var(--card) / 0.78);
+    border: 1px solid hsl(var(--border) / 0.5);
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
     box-shadow: var(--card-shadow);
-  }
-
-  /* Light mode: lavender-tinted cards with purple shadow */
-  :root:not(.dark) .glass-card {
-    background: hsl(var(--card) / 0.92);
-    border: 1px solid hsl(var(--border) / 0.7);
-    box-shadow: var(--card-shadow);
-    backdrop-filter: blur(12px) saturate(140%);
+    border-radius: var(--radius);
   }
 
   .glass-card-hover {
@@ -165,6 +171,20 @@
   .glass-card-hover:hover {
     transform: translateY(-3px);
     box-shadow: var(--card-shadow-hover);
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(258 88% 75%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-number {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
   }
 
   /* ── Ambient orbs — CSS-driven light/dark intensity ───────────────── */
@@ -227,12 +247,14 @@
     box-shadow: var(--card-shadow-hover);
   }
 
+  /* zen-card aliased to card for compatibility */
   .zen-card {
-    @apply bg-card rounded-2xl;
-    box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.05),
-      0 8px 24px rgba(0, 0, 0, 0.04);
-    border: 0.5px solid hsl(var(--border) / 0.6);
+    background: hsl(var(--card) / 0.92);
+    border: 1px solid hsl(var(--border) / 0.6);
+    border-top: 1px solid hsl(var(--border) / 0.9);
+    backdrop-filter: blur(12px) saturate(140%);
+    box-shadow: var(--card-shadow);
+    border-radius: var(--radius);
   }
 
   .dot-grid {
@@ -334,26 +356,6 @@
   70%       { transform: translateY(4px) rotate(-0.5deg); }
 }
 
-@keyframes orb-drift-1 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  25%  { transform: translate(50px, 35px) scale(1.04); }
-  50%  { transform: translate(25px, 70px) scale(0.97); }
-  75%  { transform: translate(-35px, 25px) scale(1.02); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-
-@keyframes orb-drift-2 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  33%  { transform: translate(-45px, -25px) scale(1.06); }
-  66%  { transform: translate(35px, -50px) scale(0.96); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-
-@keyframes orb-drift-3 {
-  0%   { transform: translate(0px, 0px) scale(1); }
-  50%  { transform: translate(35px, -35px) scale(1.08); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
 
 /* ─── Stagger reveal ─────────────────────────────────────────────────────────  */
 
@@ -379,27 +381,16 @@
   position: relative;
   overflow: hidden;
 }
-.btn-shine::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -80%;
-  width: 55%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
-  transform: skewX(-18deg);
-  pointer-events: none;
-  transition: left 0s;
-}
-.btn-shine:hover::after {
-  left: 135%;
-  transition: left 0.52s ease;
+
+.btn-shine:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px hsl(var(--primary) / 0.35);
 }
 
 /* ─── Prefers-reduced-motion overrides ───────────────────────────────────────  */
 
 @media (prefers-reduced-motion: reduce) {
-  .btn-shine::after { display: none; }
+  .btn-shine:hover { transform: none; }
   .kanban-col-doing { animation: none; }
   .glow-active      { animation: none; }
   .zen-dot          { animation: none; }

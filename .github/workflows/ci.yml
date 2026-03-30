@@ -8,8 +8,76 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  # ─── Block PRs that introduce vulnerable dependencies (GitHub Dependency Graph) ───
+  dependency-review:
+    name: Security — dependency review (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # ─── Secret scanning in git history for this checkout ───
+  gitleaks:
+    name: Security — Gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Dockerfile best practices ───
+  hadolint:
+    name: Security — Hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
+
+  # ─── GitHub CodeQL static analysis (JavaScript/TypeScript) ───
+  codeql:
+    name: Security — CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
+
   server-test:
     name: Server — test & audit
     runs-on: ubuntu-latest
@@ -33,7 +101,12 @@ jobs:
         env:
           NODE_ENV: test
 
-      - name: npm audit (high or higher)
+      # Fails the job if any CRITICAL advisory is present (blocking)
+      - name: npm audit — CRITICAL (blocking)
+        run: npm audit --audit-level=critical
+
+      # Informational: HIGH+ listed but does not fail (tune to blocking later if desired)
+      - name: npm audit — HIGH+ (report only)
         run: npm audit --audit-level=high
         continue-on-error: true
 
@@ -65,14 +138,20 @@ jobs:
         run: npm run lint
         continue-on-error: true
 
-      - name: npm audit (high or higher)
+      - name: npm audit — CRITICAL (blocking)
+        run: npm audit --audit-level=critical
+
+      - name: npm audit — HIGH+ (report only)
         run: npm audit --audit-level=high
         continue-on-error: true
 
   docker-build:
-    name: Docker — build image
+    name: Docker — build & scan
     runs-on: ubuntu-latest
     needs: [server-test, client-test]
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -90,10 +169,28 @@ jobs:
           build-args: |
             VITE_API_URL=http://localhost:3000
 
-      - name: Trivy vulnerability scan
+      # Full report (does not fail the job)
+      - name: Trivy — report (table)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: focusnest:ci
           format: table
           exit-code: "0"
-          severity: CRITICAL,HIGH
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+      # Blocking: fail on CRITICAL + HIGH in the final image
+      - name: Trivy — gate HIGH and CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: focusnest:ci
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+
+      - name: Upload Trivy SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif

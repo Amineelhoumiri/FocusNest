@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-
-// Chat uses useTheme — provide a real ThemeProvider
+import { MemoryRouter } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeContext";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -16,28 +15,29 @@ import Chat from "@/pages/Chat";
 
 const renderChat = () =>
   render(
-    <ThemeProvider>
-      <Chat />
-    </ThemeProvider>
+    <MemoryRouter>
+      <ThemeProvider>
+        <Chat />
+      </ThemeProvider>
+    </MemoryRouter>
   );
 
-// Default: empty session list on mount
-const emptySessionsResponse = () =>
+// Default: tasks API + empty chat session on mount
+const emptyResponse = () =>
   Promise.resolve({ ok: true, json: async () => [] });
 
 describe("Chat page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
-    mockFetch.mockImplementation(() => emptySessionsResponse());
+    mockFetch.mockImplementation(() => emptyResponse());
   });
 
-  it("shows template cards on first load (no messages)", async () => {
+  it("shows prompt cards on first load (no messages)", async () => {
     renderChat();
 
     await waitFor(() => {
       expect(screen.getByText("Break down a task")).toBeTruthy();
-      expect(screen.getByText("Prioritize my day")).toBeTruthy();
+      expect(screen.getByText("Prioritise my day")).toBeTruthy();
       expect(screen.getByText("Overcome procrastination")).toBeTruthy();
     });
   });
@@ -49,51 +49,45 @@ describe("Chat page", () => {
     });
   });
 
-  it("clicking a template card fills the textarea", async () => {
+  it("clicking a prompt card immediately sends the message", async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // tasks
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s1" }) }) // POST /api/chat
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // save user message
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, result: "On it!" }) }) // AI
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }); // save AI message
+
     renderChat();
 
     await waitFor(() => screen.getByText("Break down a task"));
-    fireEvent.click(screen.getByText("Break down a task"));
 
-    const textarea = screen.getByPlaceholderText(/ask finch/i) as HTMLTextAreaElement;
-    expect(textarea.value).toContain("I have a task I'm feeling overwhelmed");
-  });
-
-  it("loads past sessions from API on mount and shows them in sidebar", async () => {
-    const sessions = [
-      {
-        chat_session_id: "sess-1",
-        created_at: "2026-03-20T10:00:00Z",
-        updated_at: "2026-03-20T10:05:00Z",
-        ended_at: null,
-      },
-    ];
-
-    // Pre-set a title so the session passes the empty-filter
-    localStorage.setItem("fn_chat_titles", JSON.stringify({ "sess-1": "My first chat" }));
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => sessions,
+    await act(async () => {
+      fireEvent.click(screen.getByText("Break down a task"));
     });
 
-    renderChat();
-
+    // The prompt card's prompt is sent as a user message bubble
     await waitFor(() => {
-      expect(screen.getByText("My first chat")).toBeTruthy();
+      expect(screen.getByText(/break down.*task|overwhelming task/i)).toBeTruthy();
+    });
+  });
+
+  it("shows the history link in the top bar", async () => {
+    renderChat();
+    await waitFor(() => {
+      expect(screen.getByText(/history/i)).toBeTruthy();
     });
   });
 
   it("sends a message and shows the AI reply", async () => {
     mockFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s1" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // tasks
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s1" }) }) // new session
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // save user msg
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ success: true, result: { type: "text", text: "Here is my reply" } }),
-      })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+        json: async () => ({ success: true, result: "Here is my reply" }),
+      }) // AI
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }); // save AI msg
 
     renderChat();
     await waitFor(() => screen.getByPlaceholderText(/ask finch/i));
@@ -105,7 +99,6 @@ describe("Chat page", () => {
       fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     });
 
-    // Message bubble appears (use getAllByText since textarea may still render the value briefly)
     await waitFor(() => {
       expect(screen.getAllByText("Help me focus").length).toBeGreaterThanOrEqual(1);
     });
@@ -116,10 +109,10 @@ describe("Chat page", () => {
     const aiPromise = new Promise((res) => { resolveAI = res; });
 
     mockFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s2" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
-      .mockReturnValueOnce({ ok: true, json: () => aiPromise });  // AI is slow
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // tasks
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s2" }) }) // new session
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // save user msg
+      .mockReturnValueOnce({ ok: true, json: () => aiPromise }); // AI slow
 
     renderChat();
     await waitFor(() => screen.getByPlaceholderText(/ask finch/i));
@@ -136,19 +129,19 @@ describe("Chat page", () => {
       expect(screen.getAllByText("Optimistic message").length).toBeGreaterThanOrEqual(1);
     });
 
-    // Resolve AI to clean up
-    resolveAI({ success: true, result: { type: "text", text: "Response" } });
+    resolveAI({ success: true, result: "Response" });
   });
 
   it("clears the textarea after sending", async () => {
     mockFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => [] })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s3" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => [] }) // tasks
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ chat_session_id: "s3" }) }) // new session
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // save user msg
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ success: true, result: { type: "text", text: "OK" } }),
-      });
+        json: async () => ({ success: true, result: "OK" }),
+      }) // AI
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }); // save AI msg
 
     renderChat();
     await waitFor(() => screen.getByPlaceholderText(/ask finch/i));
@@ -160,7 +153,6 @@ describe("Chat page", () => {
       fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     });
 
-    // After send, component re-renders with chat view — re-query the textarea
     await waitFor(() => {
       const freshTextarea = screen.getByPlaceholderText(/ask finch/i) as HTMLTextAreaElement;
       expect(freshTextarea.value).toBe("");
@@ -171,12 +163,10 @@ describe("Chat page", () => {
     renderChat();
     const textarea = await screen.findByPlaceholderText(/ask finch/i);
 
-    const callsBefore = mockFetch.mock.calls.length; // only the initial load
+    const callsBefore = mockFetch.mock.calls.length; // only the tasks fetch
 
-    // Try to send with empty input via Enter key
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
-    // No additional fetch calls made
     expect(mockFetch.mock.calls.length).toBe(callsBefore);
   });
 });
