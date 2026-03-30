@@ -38,11 +38,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # #region agent log — debug session bca148 (OIDC claims; no secrets)
+      - name: Debug — OIDC JWT claims (bca148)
+        id: oidc_debug
+        run: |
+          set -euo pipefail
+          echo "github.repository=${{ github.repository }}"
+          echo "github.ref=${{ github.ref }}"
+          echo "github.event_name=${{ github.event_name }}"
+          URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
+          if [[ "${URL}" == *"?"* ]]; then
+            REQ="${URL}&audience=sts.amazonaws.com"
+          else
+            REQ="${URL}?audience=sts.amazonaws.com"
+          fi
+          RESP=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${REQ}")
+          JWT=$(echo "$RESP" | jq -r '.value')
+          export JWT
+          python3 - <<'PY'
+          import json, base64, os, sys
+          jwt = os.environ.get("JWT", "")
+          parts = jwt.split(".")
+          if len(parts) < 2:
+              print("::error::OIDC response missing JWT")
+              sys.exit(1)
+          pad = "=" * (-len(parts[1]) % 4)
+          raw = parts[1] + pad
+          data = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
+          aud = data.get("aud")
+          out = {
+              "sub": data.get("sub"),
+              "aud": aud,
+              "aud_type": type(aud).__name__,
+              "iss": data.get("iss"),
+              "repository": data.get("repository"),
+              "ref": data.get("ref"),
+          }
+          print("OIDC_CLAIMS_JSON=" + json.dumps(out))
+          PY
+      # #endregion
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Login to Amazon ECR
         id: ecr
