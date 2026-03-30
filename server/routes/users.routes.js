@@ -19,6 +19,12 @@ router.patch("/me", auth, usersController.updateMe);
 // GET /api/users/me/export — download all user data as JSON (GDPR)
 router.get("/me/export", auth, usersController.exportData);
 
+// POST /api/users/me/password - securely change account password
+router.post("/me/password", auth, usersController.changePassword);
+
+// POST /api/users/me/score — increment focus score (called on task/session completion)
+router.post("/me/score", auth, usersController.addScore);
+
 // DELETE /api/users/me/nuke — permanently delete account and all data
 router.delete("/me/nuke", auth, usersController.nukeAccount);
 

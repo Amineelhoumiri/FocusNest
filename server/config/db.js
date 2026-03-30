@@ -1,31 +1,26 @@
 // Database configuration
 // Initialise database connection pool
+const { Pool } = require("pg");
 
-const { Pool } = require("pg");   // PostgreSQL client for Node.js
-
-// Create a new connection pool using environment variables for configuration
 const pool = new Pool({
-    host: process.env.DB_HOST,      // database server adddress
-    port: process.env.DB_PORT,      // database server port
-    database: process.env.DB_NAME,  // database name
-    user: process.env.DB_USER,      // database user
-    password: process.env.DB_PASSWORD,  // database password
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    // DB_SSL=false disables SSL (use for local PG or RDS without SSL enforcement)
+    // Omit or set DB_SSL=true for AWS RDS with SSL enabled
+    ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
 });
-console.log("DB Config:", {
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-});
-// Test database connection
-pool.connect((err, client, release) => {    // Attempt to acquire a client from the pool
+
+// Test database connection on startup
+pool.connect((err, client, release) => {
     if (err) {
-        console.error("Error acquiring client", err.message);       // Log error if connection fails
+        console.error("Error acquiring client", err.message);
     } else {
-        console.log("Database connection established");     // Log success message if connection is successful
-        release();      // Release the client back to the pool after testing connection
+        console.log("Database connection established");
+        release();
     }
 });
 
-// Export the pool for use in other parts of the application
-module.exports = pool;    
+module.exports = pool;

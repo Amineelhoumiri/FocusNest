@@ -1,0 +1,301 @@
+const OpenAI = require("openai");
+require("dotenv").config();
+const pool = require("../config/db");
+
+let openai;
+try {
+    openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY || "dummy-key-to-prevent-crash"
+    });
+} catch (e) {
+    console.error("Failed to initialize OpenAI client:", e.message);
+}
+
+function checkKey() {
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "dummy-key-to-prevent-crash") {
+        throw new Error("Missing OpenAI API Key in .env file.");
+    }
+}
+
+async function getSystemPrompt(key, fallbackPrompt) {
+    try {
+        const res = await pool.query("SELECT prompt FROM system_prompts WHERE key = $1", [key]);
+        if (res.rows.length > 0) {
+            return res.rows[0].prompt;
+        }
+    } catch (err) {
+        console.error("Error fetching prompt from DB:", err.message);
+    }
+    return fallbackPrompt;
+}
+
+async function logTokenUsage(userId, usageData, model) {
+    if (!userId || !usageData) return;
+    try {
+        await pool.query(
+            `INSERT INTO openai_usage 
+            (user_id, model, prompt_tokens, completion_tokens, total_tokens) 
+            VALUES ($1, $2, $3, $4, $5)`,
+            [
+                userId,
+                model,
+                usageData.prompt_tokens || 0,
+                usageData.completion_tokens || 0,
+                usageData.total_tokens || 0
+            ]
+        );
+    } catch (err) {
+        console.error("Error logging token usage:", err.message);
+    }
+}
+
+const DEFAULT_DECONSTRUCTOR = `You are Finch, a supportive and witty ADHD productivity coach. Your goal is to help the user start a project without the "wall of awful."
+
+TONE & STYLE:
+- Be a friendly peer. Use phrases like "Let's dive in," "We've got this," or "One step at a time."
+- Avoid robotic phrases like "Here is your breakdown."
+- Use 1-2 emojis (🌱, ⚡).
+
+TASK:
+Break the user's project into 3-5 atomic steps.
+
+RULES:
+1. The first step must be a "Micro-Win" (<60 seconds, e.g. "Open the file," "Write the title").
+2. Start every sub-task with a clear action verb (Draft, Call, Sort, Open...).
+3. End the response with a check-in question like "Does step 1 feel doable, or should we make it even smaller?"
+
+OUTPUT FORMAT:
+Return a valid JSON object with this exact structure:
+{
+  "chat_opening": "A warm, empathetic intro acknowledging the task and encouraging the user.",
+  "subtasks": [
+    { "subtask_name": "Step description here" }
+  ],
+  "chat_closing": "A supportive closing with a check-in question to confirm step 1 feels doable."
+}`;
+
+const DEFAULT_PRIORITIZER = `You are Finch. The user is experiencing a "brain dump" and feels overwhelmed. Everything feels urgent to them. Your job is to be the "calm in the storm."
+
+TONE & STYLE:
+- Validating and non-judgmental. 
+- Acknowledge that having a lot on your plate is stressful.
+- Be direct but warm.
+
+TASK:
+Categorize the tasks into the Eisenhower Matrix, but pick ONLY ONE "Focus Now" item to prevent choice paralysis.
+
+OUTPUT FORMAT:
+{
+  "chat_opening": "A warm acknowledgment of the chaos (e.g., 'Whew, that's a lot of spinning plates!')",
+  "focus_now": "The single most important task",
+  "matrix": {
+    "do_first": ["task"],
+    "schedule": ["task"],
+    "simplify": ["task"],
+    "defer": ["task"]
+  },
+  "chat_closing": "A encouraging nudge to start the 'Focus Now' task."
+}`;
+
+const DEFAULT_MOMENTUM = `You are Finch, the emergency contact for ADHD paralysis. The user is "stuck" or "frozen." 
+
+TONE & STYLE:
+- Extremely low pressure. 
+- Gentle, warm, and zero-judgment.
+- No lists. No planning. Just movement.
+
+TASK:
+1. Validate the feeling in one sentence.
+2. Give EXACTLY ONE tiny physical micro-action.
+3. Use **bold** for the action.
+
+OUTPUT FORMAT:
+(Plain Text/Markdown - No JSON)
+Example: "It's okay to feel stuck; your brain is just trying to protect you from overwhelm. Let's reset. **Just stand up and stretch your arms toward the ceiling for 5 seconds.** That's all. Tell me when you've done that."`;
+
+/**
+ * 1. The Deconstructor (Task Breakdown)
+ * Generates an atomic task breakdown for neurodivergent users.
+ */
+async function generateTaskBreakdown(userTask, userId) {
+    checkKey();
+
+    const systemPrompt = await getSystemPrompt('deconstructor', DEFAULT_DECONSTRUCTOR);
+    const model = "gpt-5.2";
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: model,
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userTask }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        await logTokenUsage(userId, response.usage, model);
+
+        const rawContent = response.choices[0].message.content;
+        const data = JSON.parse(rawContent);
+
+        if (data.subtasks && Array.isArray(data.subtasks)) {
+            return data;
+        }
+
+        return data;
+
+    } catch (error) {
+        console.error("AI Generation Error (Breakdown):", error);
+        throw new Error("Failed to generate task breakdown. Please try again.");
+    }
+}
+
+/**
+ * 2. The Prioritizer (Impact vs. Urgency)
+ * Categorize a messy "brain dump" to eliminate decision fatigue.
+ */
+async function prioritizeTasks(userTask, userId) {
+    checkKey();
+
+    const systemPrompt = await getSystemPrompt('prioritizer', DEFAULT_PRIORITIZER);
+    const model = "gpt-5.2";
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: model,
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userTask }
+            ],
+            response_format: { type: "json_object" }
+        });
+
+        await logTokenUsage(userId, response.usage, model);
+
+        const rawContent = response.choices[0].message.content;
+        return JSON.parse(rawContent);
+
+    } catch (error) {
+        console.error("AI Generation Error (Prioritizer):", error);
+        throw new Error("Failed to prioritize tasks. Please try again.");
+    }
+}
+
+/**
+ * 3. The Momentum Builder (The Freeze-Breaker)
+ * Rescue a user currently experiencing a "freeze response" or "ADHD Paralysis."
+ */
+async function buildMomentum(userTask, userId) {
+    checkKey();
+
+    const systemPrompt = await getSystemPrompt('momentum_builder', DEFAULT_MOMENTUM);
+    const model = "gpt-5.2";
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: model,
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userTask }
+            ]
+        });
+
+        await logTokenUsage(userId, response.usage, model);
+
+        return response.choices[0].message.content;
+
+    } catch (error) {
+        console.error("AI Generation Error (Momentum):", error);
+        throw new Error("Failed to build momentum. Please try again.");
+    }
+}
+
+// ─── Conversational Finch ─────────────────────────────────────────────────────
+
+const DEFAULT_CONVERSATIONAL_COACH = `You are Finch, a warm and witty ADHD productivity coach inside FocusNest.
+
+YOUR JOB:
+Help users with task breakdowns, prioritization, or overcoming a freeze state — but NEVER rush straight to a response.
+Always ask clarifying questions first, ONE AT A TIME, until the picture is clear.
+
+CONVERSATION FLOW:
+1. Read what the user needs (breakdown, prioritization, or getting unstuck).
+2. Ask follow-up questions ONE AT A TIME — maximum 3 questions total in the whole conversation.
+3. Once you have enough clarity, deliver your response.
+4. If the user's very first message already has all the detail you need, skip straight to the response.
+
+QUESTION GUIDELINES:
+- One question per message, never two.
+- Keep it short, warm, and specific.
+- Examples: "What's the main goal here?", "How much time do you have?", "What feels hardest to start?"
+- Stop questioning after 1-3 exchanges — trust your judgment.
+
+ALWAYS return valid JSON in one of these four formats:
+
+When asking a follow-up question:
+{ "type": "question", "content": "Your warm, specific single question" }
+
+When proposing a task breakdown:
+{
+  "type": "breakdown",
+  "chat_opening": "Warm intro referencing what you learned from the conversation",
+  "subtasks": [
+    { "subtask_name": "Action verb + specific step", "energy_level": "Low" | "High" }
+  ],
+  "chat_closing": "Encouraging close + ask if this feels right or needs adjusting"
+}
+
+When proposing prioritization (Eisenhower Matrix):
+{
+  "type": "prioritize",
+  "chat_opening": "Warm acknowledgment of the overwhelm",
+  "focus_now": "The single most important task to touch next",
+  "matrix": {
+    "do_first": ["task"],
+    "schedule": ["task"],
+    "simplify": ["task"],
+    "defer": ["task"]
+  },
+  "chat_closing": "Low-pressure nudge to start the focus_now task"
+}
+
+When giving momentum / freeze-breaker advice:
+{
+  "type": "momentum",
+  "content": "Plain text / markdown. **Bold** the one micro-action. Under 5 sentences."
+}`;
+
+/**
+ * Conversational Finch — handles the full multi-turn chat with clarifying questions.
+ * Accepts the full conversation history and returns a typed JSON response.
+ *
+ * @param {Array<{role: string, content: string}>} messages - Full conversation history
+ * @param {string} userId - For token usage logging
+ */
+async function converseWithFinch(messages, userId) {
+    checkKey();
+
+    const systemPrompt = await getSystemPrompt("conversational_coach", DEFAULT_CONVERSATIONAL_COACH);
+    const model = "gpt-5.2";
+
+    try {
+        const response = await openai.chat.completions.create({
+            model,
+            messages: [
+                { role: "system", content: systemPrompt },
+                ...messages,
+            ],
+            response_format: { type: "json_object" },
+        });
+
+        await logTokenUsage(userId, response.usage, model);
+
+        const data = JSON.parse(response.choices[0].message.content);
+        return data;
+    } catch (error) {
+        console.error("AI Converse Error:", error);
+        throw new Error("Failed to get AI response. Please try again.");
+    }
+}
+
+module.exports = { generateTaskBreakdown, prioritizeTasks, buildMomentum, converseWithFinch };

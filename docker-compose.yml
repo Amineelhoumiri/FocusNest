@@ -1,0 +1,17 @@
+# Local / demo: run the full stack in one container (expects .env with DB + secrets)
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Same host as browser when opening http://localhost:3000
+        VITE_API_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./server/.env
+    environment:
+      STATIC_DIR: /app/client/dist
+      PORT: "3000"
+    restart: unless-stopped

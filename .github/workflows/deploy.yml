@@ -1,0 +1,101 @@
+# Deploy to AWS: ECR push + App Runner deployment (OIDC — no long-lived AWS keys in GitHub)
+#
+# Prerequisites (AWS):
+#   - ECR repository (e.g. focusnest)
+#   - App Runner service using that ECR image (port 3000), VPC connector to reach private RDS
+#   - IAM role for GitHub OIDC: trust token.actions.githubusercontent.com; allow ECR push +
+#       apprunner:StartDeployment, apprunner:DescribeService, apprunner:ListOperations
+#     (and ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability, ecr:CompleteLayerUpload,
+#      ecr:InitiateLayerUpload, ecr:PutImage, ecr:UploadLayerPart, ecr:BatchGetImage on the repo)
+#
+# GitHub repository secrets:
+#   AWS_ROLE_ARN              — IAM role ARN for OIDC
+#   AWS_REGION                — e.g. eu-west-2
+#   ECR_REPOSITORY            — repo name (no registry prefix)
+# Optional:
+#   APPRUNNER_SERVICE_ARN     — full ARN of the App Runner service; if unset, only ECR push runs
+#                               (use App Runner automatic deployments on :latest instead)
+#
+# GitHub repository variables:
+#   PUBLIC_APP_URL            — public https origin for Vite build (same as App Runner URL or custom domain)
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Push to ECR and start App Runner deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: meta
+        run: |
+          echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build locally first so Trivy can scan before anything reaches ECR
+      - name: Build image (local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: focusnest:deploy
+          build-args: |
+            VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
+
+      # Gate: block the deploy if the image has fixable HIGH/CRITICAL CVEs
+      - name: Trivy — security gate
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: focusnest:deploy
+          format: table
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln
+          trivyignores: .trivyignore
+
+      # Only push to ECR after the image is confirmed clean
+      - name: Push to ECR
+        run: |
+          docker tag focusnest:deploy ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
+          docker tag focusnest:deploy ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+          docker push ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ steps.meta.outputs.IMAGE_TAG }}
+          docker push ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
+
+      - name: Start App Runner deployment
+        env:
+          SERVICE_ARN: ${{ secrets.APPRUNNER_SERVICE_ARN }}
+        run: |
+          if [ -z "${SERVICE_ARN}" ]; then
+            echo "::notice::APPRUNNER_SERVICE_ARN not set — image pushed to ECR only. Either add the secret or turn on automatic deployment for :latest in the App Runner console."
+            exit 0
+          fi
+          aws apprunner start-deployment \
+            --service-arn "${SERVICE_ARN}" \
+            --region "${{ secrets.AWS_REGION }}"

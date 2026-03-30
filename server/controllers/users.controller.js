@@ -4,25 +4,26 @@
 
 const pool = require("../config/db");
 const bcrypt = require("bcrypt");
-const { encrypt, decrypt } = require("../services/encryption.service");
 
 // ─── Get User ─────────────────────────────────────────────────────────
 
-// GET /api/users/me
-// Returns the logged-in user's profile
-// req.user is attached by auth middleware
+/**
+ * Retrieves the currently authenticated user's profile information.
+ * Email comes directly from the Better Auth session (req.user.email),
+ * so no decryption step is needed.
+ *
+ * @route GET /api/users/me
+ */
 const getMe = async (req, res) => {
   try {
-    const { user_id } = req.user;
+    const { user_id, email } = req.user;
 
-    // Get user data joined with their encrypted email from account table
     const result = await pool.query(
-      `SELECT u.user_id, u.full_name, u.date_of_birth, u.address,
+      `SELECT u.user_id, u.full_name, u.date_of_birth, u.address, u.profile_photo_url, u.phone_number,
               u.is_admin, u.created_at, u.last_login_at,
               u.is_consented_core, u.is_consented_ai, u.is_consented_spotify,
-              a.encrypted_email
+              u.focus_score
        FROM users u
-       JOIN account a ON u.user_id = a.user_id
        WHERE u.user_id = $1`,
       [user_id]
     );
@@ -36,21 +37,47 @@ const getMe = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Decrypt email before sending to client
-    const email = decrypt(user.encrypted_email.toString());
+    // Calculate streak: count consecutive days ending today with at least one completed session
+    const streakDaysResult = await pool.query(
+      `WITH daily AS (
+         SELECT DISTINCT DATE(end_time) AS d
+         FROM focus_session
+         WHERE user_id = $1 AND outcome = 'completed' AND end_time IS NOT NULL
+       ),
+       ranked AS (
+         SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d))::INTEGER AS grp
+         FROM daily
+       ),
+       streaks AS (
+         SELECT grp, MAX(d) AS last_day, COUNT(*) AS len
+         FROM ranked
+         GROUP BY grp
+       )
+       SELECT COALESCE(len, 0)::INTEGER AS streak
+       FROM streaks
+       WHERE last_day = CURRENT_DATE
+       LIMIT 1`,
+      [user_id]
+    );
+
+    const streak = streakDaysResult.rows[0]?.streak ?? 0;
 
     return res.status(200).json({
       user_id: user.user_id,
       full_name: user.full_name,
       email,
+      phone_number: user.phone_number,
       date_of_birth: user.date_of_birth,
       address: user.address,
+      profile_photo_url: user.profile_photo_url,
       is_admin: user.is_admin,
       created_at: user.created_at,
       last_login_at: user.last_login_at,
       is_consented_core: user.is_consented_core,
       is_consented_ai: user.is_consented_ai,
       is_consented_spotify: user.is_consented_spotify,
+      focus_score: user.focus_score ?? 0,
+      streak,
     });
 
   } catch (err) {
@@ -62,42 +89,29 @@ const getMe = async (req, res) => {
   }
 };
 
-// ─── Update Current User ───────────────────
-// PATCH /api/users/me
-// Updates the logged-in user's profile
+/**
+ * Partially updates the currently authenticated user's profile metadata.
+ *
+ * @route PATCH /api/users/me
+ */
 const updateMe = async (req, res) => {
   try {
     const { user_id } = req.user;
-    const { full_name, date_of_birth, address,
-            is_consented_ai, is_consented_spotify } = req.body;
+    const { full_name, date_of_birth, address, profile_photo_url, phone_number,
+      is_consented_ai, is_consented_spotify } = req.body;
 
-    // Build dynamic query that only update fields that were provided
     const fields = [];
     const values = [];
     let index = 1;
 
-    if (full_name !== undefined) {
-      fields.push(`full_name = $${index++}`);
-      values.push(full_name);
-    }
-    if (date_of_birth !== undefined) {
-      fields.push(`date_of_birth = $${index++}`);
-      values.push(date_of_birth);
-    }
-    if (address !== undefined) {
-      fields.push(`address = $${index++}`);
-      values.push(address);
-    }
-    if (is_consented_ai !== undefined) {
-      fields.push(`is_consented_ai = $${index++}`);
-      values.push(is_consented_ai);
-    }
-    if (is_consented_spotify !== undefined) {
-      fields.push(`is_consented_spotify = $${index++}`);
-      values.push(is_consented_spotify);
-    }
+    if (full_name !== undefined) { fields.push(`full_name = $${index++}`); values.push(full_name); }
+    if (date_of_birth !== undefined) { fields.push(`date_of_birth = $${index++}`); values.push(date_of_birth); }
+    if (address !== undefined) { fields.push(`address = $${index++}`); values.push(address); }
+    if (phone_number !== undefined) { fields.push(`phone_number = $${index++}`); values.push(phone_number); }
+    if (profile_photo_url !== undefined) { fields.push(`profile_photo_url = $${index++}`); values.push(profile_photo_url); }
+    if (is_consented_ai !== undefined) { fields.push(`is_consented_ai = $${index++}`); values.push(is_consented_ai); }
+    if (is_consented_spotify !== undefined) { fields.push(`is_consented_spotify = $${index++}`); values.push(is_consented_spotify); }
 
-    // If nothing was sent in the body, return early
     if (fields.length === 0) {
       return res.status(400).json({
         error: "VALIDATION_ERROR",
@@ -108,9 +122,9 @@ const updateMe = async (req, res) => {
     values.push(user_id);
 
     const result = await pool.query(
-      `UPDATE users SET ${fields.join(", ")} 
+      `UPDATE users SET ${fields.join(", ")}
        WHERE user_id = $${index}
-       RETURNING user_id, full_name, date_of_birth, address,
+       RETURNING user_id, full_name, date_of_birth, address, profile_photo_url, phone_number,
                  is_consented_ai, is_consented_spotify`,
       values
     );
@@ -128,55 +142,50 @@ const updateMe = async (req, res) => {
 
 // ─── Delete Account (Nuke) ──────────────────────────────────────────────────
 
-// DELETE /api/users/me/nuke
-// Permanently deletes the user and all their data (GDPR right to erasure)
-// CASCADE deletes handle all related tables automatically
+/**
+ * PERMANENTLY deletes the authenticated user's account and all associated data.
+ * For credential (email/password) users, requires password confirmation.
+ * For OAuth-only users, skips password check.
+ *
+ * @route DELETE /api/users/me/nuke
+ */
 const nukeAccount = async (req, res) => {
   try {
     const { user_id } = req.user;
     const { password } = req.body;
 
-    // Require password confirmation before deleting
-    if (!password) {
-      return res.status(400).json({
-        error: "VALIDATION_ERROR",
-        message: "Password confirmation required.",
-      });
-    }
-
-    // Get the password hash to verify
+    // Check if this user has a credential (email/password) account
     const accountResult = await pool.query(
-      `SELECT password_hash FROM account WHERE user_id = $1`,
+      `SELECT password FROM account WHERE user_id = $1 AND provider_id = 'credential'`,
       [user_id]
     );
 
-    if (accountResult.rows.length === 0) {
-      return res.status(404).json({
-        error: "NOT_FOUND",
-        message: "Account not found.",
-      });
+    const hasPassword = accountResult.rows.length > 0 && accountResult.rows[0].password;
+
+    if (hasPassword) {
+      if (!password) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "Password confirmation required.",
+        });
+      }
+
+      const passwordMatch = await bcrypt.compare(password, accountResult.rows[0].password);
+      if (!passwordMatch) {
+        return res.status(401).json({
+          error: "INVALID_PASSWORD",
+          message: "Incorrect password.",
+        });
+      }
     }
 
-    // Verify password before allowing deletion
-    const passwordMatch = await bcrypt.compare(
-      password,
-      accountResult.rows[0].password_hash
-    );
-
-    if (!passwordMatch) {
-      return res.status(401).json({
-        error: "INVALID_PASSWORD",
-        message: "Incorrect password.",
-      });
-    }
-
-    // Delete user ,CASCADE will automatically delete all related data
-    // (account, tasks, subtasks, sessions, chat_sessions, refresh_tokens etc.)
+    // Delete from both tables — CASCADE handles children of each.
+    // "user" is quoted because it is a PostgreSQL reserved keyword.
     await pool.query(`DELETE FROM users WHERE user_id = $1`, [user_id]);
+    await pool.query(`DELETE FROM "user" WHERE id = $1`, [user_id]);
 
-    // Clear cookies
-    res.clearCookie("access_token");
-    res.clearCookie("refresh_token");
+    // Clear the Better Auth session cookie
+    res.clearCookie("better-auth.session_token");
 
     return res.status(204).send();
 
@@ -191,39 +200,33 @@ const nukeAccount = async (req, res) => {
 
 // ─── Export User Data (GDPR) ──────────────────────────────────────────────────
 
-// GET /api/users/me/export
-// Returns all user data as a downloadable JSON file (GDPR right to portability)
+/**
+ * Compiles all data related to the authenticated user and returns it as JSON.
+ * Satisfies GDPR "right to data portability".
+ *
+ * @route GET /api/users/me/export
+ */
 const exportData = async (req, res) => {
   try {
-    const { user_id } = req.user;
+    const { user_id, email } = req.user;
 
-    // Fetch all user data from every table
     const [user, tasks, sessions, chatSessions, consentLog] =
       await Promise.all([
-        pool.query(
-          `SELECT u.*, a.encrypted_email 
-           FROM users u JOIN account a ON u.user_id = a.user_id 
-           WHERE u.user_id = $1`,
-          [user_id]
-        ),
+        pool.query(`SELECT * FROM users WHERE user_id = $1`, [user_id]),
         pool.query(`SELECT * FROM tasks WHERE user_id = $1`, [user_id]),
-        pool.query(`SELECT * FROM session WHERE user_id = $1`, [user_id]),
+        pool.query(`SELECT * FROM focus_session WHERE user_id = $1`, [user_id]),
         pool.query(`SELECT * FROM chat_sessions WHERE user_id = $1`, [user_id]),
-        pool.query(
-          `SELECT * FROM consent_audit_log WHERE user_id = $1`,
-          [user_id]
-        ),
+        pool.query(`SELECT * FROM consent_audit_log WHERE user_id = $1`, [user_id]),
       ]);
 
     const userData = user.rows[0];
 
-    // Build the export object
-    const exportData = {
+    const exportPayload = {
       exported_at: new Date().toISOString(),
       user: {
         user_id: userData.user_id,
         full_name: userData.full_name,
-        email: decrypt(userData.encrypted_email.toString()),
+        email,
         date_of_birth: userData.date_of_birth,
         address: userData.address,
         created_at: userData.created_at,
@@ -234,11 +237,10 @@ const exportData = async (req, res) => {
       consent_log: consentLog.rows,
     };
 
-    // Set headers to trigger file download in browser
     res.setHeader("Content-Disposition", "attachment; filename=my-data.json");
     res.setHeader("Content-Type", "application/json");
 
-    return res.status(200).json(exportData);
+    return res.status(200).json(exportPayload);
 
   } catch (err) {
     console.error("exportData error:", err.message);
@@ -249,4 +251,105 @@ const exportData = async (req, res) => {
   }
 };
 
-module.exports = { getMe, updateMe, nukeAccount, exportData };
+// ─── Change Password ──────────────────────────────────────────────────────────
+
+/**
+ * Allows the authenticated user to change their password.
+ * Reads and writes the password from/to account (Better Auth's credential table).
+ *
+ * @route POST /api/users/me/password
+ */
+const changePassword = async (req, res) => {
+  try {
+    const { user_id } = req.user;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "Current and new password are required.",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "New password must be at least 8 characters.",
+      });
+    }
+
+    const accountResult = await pool.query(
+      `SELECT password FROM account WHERE user_id = $1 AND provider_id = 'credential'`,
+      [user_id]
+    );
+
+    if (accountResult.rows.length === 0 || !accountResult.rows[0].password) {
+      return res.status(404).json({
+        error: "NOT_FOUND",
+        message: "No password-based account found.",
+      });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, accountResult.rows[0].password);
+    if (!isMatch) {
+      return res.status(401).json({
+        error: "INVALID_PASSWORD",
+        message: "Your current password is incorrect.",
+      });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 12);
+
+    await pool.query(
+      `UPDATE account SET password = $1 WHERE user_id = $2 AND provider_id = 'credential'`,
+      [newHash, user_id]
+    );
+
+    return res.status(200).json({ message: "Password changed successfully." });
+
+  } catch (err) {
+    console.error("changePassword error:", err.message);
+    return res.status(500).json({
+      error: "INTERNAL_SERVER_ERROR",
+      message: "Failed to change password.",
+    });
+  }
+};
+
+// ─── Add Focus Score ──────────────────────────────────────────────────────────
+
+/**
+ * Increments the authenticated user's focus_score by the given number of points.
+ *
+ * @route POST /api/users/me/score
+ */
+const addScore = async (req, res) => {
+  try {
+    const { user_id } = req.user;
+    const { points } = req.body;
+
+    if (!points || typeof points !== "number" || points <= 0) {
+      return res.status(400).json({
+        error: "VALIDATION_ERROR",
+        message: "points must be a positive number.",
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE users SET focus_score = COALESCE(focus_score, 0) + $1
+       WHERE user_id = $2
+       RETURNING focus_score`,
+      [points, user_id]
+    );
+
+    return res.status(200).json({ focus_score: result.rows[0].focus_score });
+  } catch (err) {
+    console.error("addScore error:", err.message);
+    return res.status(500).json({
+      error: "INTERNAL_SERVER_ERROR",
+      message: "Failed to update focus score.",
+    });
+  }
+};
+
+module.exports = { getMe, updateMe, changePassword, nukeAccount, exportData, addScore };
