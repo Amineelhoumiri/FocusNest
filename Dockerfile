@@ -15,9 +15,9 @@ RUN npm run build
 # ─── Runtime ─────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
 
-# Keep base OS packages patched (Trivy gate checks HIGH/CRITICAL fixable CVEs)
-RUN apk add --no-cache dumb-init \
-    && apk add --no-cache --upgrade zlib
+# Upgrade all base OS packages so fixable CVEs (e.g. musl CVE-2025-26519) are patched
+RUN apk upgrade --no-cache \
+    && apk add --no-cache dumb-init
 
 WORKDIR /app
 ENV NODE_ENV=production
