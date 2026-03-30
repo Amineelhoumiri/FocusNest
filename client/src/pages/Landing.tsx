@@ -1,13 +1,15 @@
 import {
-  motion, useScroll, useTransform, useSpring,
-  useInView, useMotionValue, animate, useReducedMotion,
+  motion, useScroll, useSpring, useInView,
+  useMotionValue, animate, useReducedMotion, useAnimationFrame,
 } from "framer-motion";
 import {
   ArrowRight, Brain, Timer, Sparkles, Clock, Maximize,
-  LifeBuoy, ShieldCheck, Star, CheckSquare, MessageCircle, Check,
+  LifeBuoy, ShieldCheck, Star, Zap, Heart, Shield,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useRef, useEffect, useState } from "react";
+import { useTheme } from "@/context/ThemeContext";
+import { FinchBird } from "@/components/finch-bird";
 
 // ─── Animated counter ─────────────────────────────────────────────────────────
 
@@ -23,6 +25,312 @@ const Counter = ({ to, suffix = "" }: { to: number; suffix?: string }) => {
   }, [inView]);
   return <span ref={ref}>{display.toLocaleString()}{suffix}</span>;
 };
+
+// ─── HeroBackground ───────────────────────────────────────────────────────────
+
+interface HeroDot {
+  ox: number; oy: number;
+  cx: number; cy: number;
+  phase: number; speed: number;
+  r: number; colorIdx: number;
+}
+interface HeroRipple { x: number; y: number; outerR: number; alpha: number; }
+
+const DARK_DOT_COLORS = [[130, 118, 255], [80, 200, 160], [160, 120, 255]] as const;
+const LIGHT_DOT_COLORS = [[83, 74, 183], [29, 158, 117], [127, 119, 221]] as const;
+
+const HeroBackground = ({ isLight }: { isLight: boolean }) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const dotsRef    = useRef<HeroDot[]>([]);
+  const ripplesRef = useRef<HeroRipple[]>([]);
+
+  const rawX    = useMotionValue(-999);
+  const rawY    = useMotionValue(-999);
+  const smoothX = useSpring(rawX, { stiffness: 80, damping: 20 });
+  const smoothY = useSpring(rawY, { stiffness: 80, damping: 20 });
+
+  // Glow — motion values so position updates never trigger React re-renders
+  const glowLeft    = useMotionValue(-160);
+  const glowTop     = useMotionValue(-160);
+  const glowOpacity = useMotionValue(0);
+
+  // Build dot grid
+  useEffect(() => {
+    const canvas  = canvasRef.current;
+    const wrapper = wrapperRef.current;
+    if (!canvas || !wrapper) return;
+
+    const build = (W: number, H: number) => {
+      const dots: HeroDot[] = [];
+      for (let r = 0; r <= Math.ceil(H / 32); r++) {
+        for (let c = 0; c <= Math.ceil(W / 32); c++) {
+          dots.push({
+            ox: c * 32, oy: r * 32,
+            cx: c * 32, cy: r * 32,
+            phase: Math.random() * Math.PI * 2,
+            speed: 0.6 + Math.random() * 0.8,
+            r:     1.0 + Math.random() * 0.5,
+            colorIdx: Math.floor(Math.random() * 3),
+          });
+        }
+      }
+      dotsRef.current = dots;
+    };
+
+    const ro = new ResizeObserver(() => {
+      const { width, height } = wrapper.getBoundingClientRect();
+      canvas.width  = width;
+      canvas.height = height;
+      build(width, height);
+    });
+    ro.observe(wrapper);
+
+    const { width, height } = wrapper.getBoundingClientRect();
+    canvas.width  = width;
+    canvas.height = height;
+    build(width, height);
+
+    return () => ro.disconnect();
+  }, []);
+
+  // Document-level mouse tracking (works even when cursor is over hero content)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+        rawX.set(x);
+        rawY.set(y);
+        glowLeft.set(x - 160);
+        glowTop.set(y - 160);
+        animate(glowOpacity, 1, { duration: 0.4 });
+      } else {
+        rawX.set(-999);
+        rawY.set(-999);
+        animate(glowOpacity, 0, { duration: 0.4 });
+      }
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+        ripplesRef.current.push({ x, y, outerR: 0, alpha: 0.7 });
+      }
+    };
+
+    document.addEventListener("mousemove", onMove, { passive: true });
+    document.addEventListener("click", onClick);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("click", onClick);
+    };
+  }, [rawX, rawY, glowLeft, glowTop, glowOpacity]);
+
+  // Render loop
+  useAnimationFrame((time) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W  = canvas.width;
+    const H  = canvas.height;
+    const cx = smoothX.get();
+    const cy = smoothY.get();
+    const t  = time / 1000;
+
+    ctx.clearRect(0, 0, W, H);
+
+    const palette   = isLight ? LIGHT_DOT_COLORS : DARK_DOT_COLORS;
+    const baseAlpha = isLight ? 0.08 : 0.10;
+    const peakAlpha = isLight ? 0.45 : 0.60;
+
+    for (const dot of dotsRef.current) {
+      const breathAlpha = baseAlpha + Math.sin(t * dot.speed + dot.phase) * 0.022;
+      const dx   = dot.ox - cx;
+      const dy   = dot.oy - cy;
+      const dist = Math.hypot(dx, dy);
+
+      let targetX = dot.ox;
+      let targetY = dot.oy;
+      let alpha   = breathAlpha;
+      let radius  = dot.r;
+
+      if (cx > -900 && dist < 90) {
+        const tension = Math.pow(1 - dist / 90, 1.8);
+        const angle   = Math.atan2(dy, dx);
+        targetX = dot.ox + Math.cos(angle) * tension * 12;
+        targetY = dot.oy + Math.sin(angle) * tension * 12;
+        alpha   = breathAlpha + tension * (peakAlpha - baseAlpha);
+        radius  = dot.r + tension * 1.8;
+      }
+
+      // Lerp towards target — springs back when cursor leaves
+      dot.cx += (targetX - dot.cx) * 0.14;
+      dot.cy += (targetY - dot.cy) * 0.14;
+
+      const [r, g, b] = palette[dot.colorIdx];
+      ctx.beginPath();
+      ctx.arc(dot.cx, dot.cy, Math.max(radius, 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha.toFixed(3)})`;
+      ctx.fill();
+    }
+
+    // Ripples — two concentric expanding rings
+    const alive: HeroRipple[] = [];
+    for (const rip of ripplesRef.current) {
+      rip.outerR += 2.5;
+      rip.alpha  *= 0.96;
+      if (rip.alpha < 0.01) continue;
+
+      const innerR = rip.outerR * 0.55;
+
+      ctx.beginPath();
+      ctx.arc(rip.x, rip.y, rip.outerR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(140,130,255,${rip.alpha.toFixed(3)})`;
+      ctx.lineWidth   = 1.5;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(rip.x, rip.y, innerR, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(80,200,160,${(rip.alpha * 0.8).toFixed(3)})`;
+      ctx.lineWidth   = 0.8;
+      ctx.stroke();
+
+      if (rip.outerR < 140) alive.push(rip);
+    }
+    ripplesRef.current = alive;
+  });
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="absolute inset-0 pointer-events-none"
+      style={{ zIndex: 0, willChange: "transform" }}
+    >
+      <canvas ref={canvasRef} className="absolute inset-0" />
+      {/* Cursor glow — follows mouse without React re-renders */}
+      <motion.div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          width: 320, height: 320,
+          left: glowLeft,
+          top:  glowTop,
+          opacity: glowOpacity,
+          background: isLight
+            ? "radial-gradient(circle, rgba(83,74,183,0.06) 0%, transparent 70%)"
+            : "radial-gradient(circle, rgba(124,111,247,0.07) 0%, transparent 70%)",
+        }}
+      />
+    </div>
+  );
+};
+
+// ─── Marquee ticker ───────────────────────────────────────────────────────────
+
+const TICKER_ITEMS = [
+  { icon: Zap,       text: "ADHD-friendly by design" },
+  { icon: Heart,     text: "No shame, ever" },
+  { icon: Sparkles,  text: "AI task breakdown" },
+  { icon: Shield,    text: "GDPR encrypted" },
+  { icon: Brain,     text: "Built for your brain" },
+  { icon: Zap,       text: "One task at a time" },
+  { icon: Heart,     text: "Micro-timers that work" },
+  { icon: Sparkles,  text: "Finch AI companion" },
+  { icon: Shield,    text: "Zero tracking" },
+  { icon: Brain,     text: "Focus score & streaks" },
+];
+
+const Marquee = () => {
+  const doubled = [...TICKER_ITEMS, ...TICKER_ITEMS];
+  return (
+    <div className="overflow-hidden py-4 relative">
+      {/* Fade edges */}
+      <div className="absolute left-0 top-0 bottom-0 w-24 z-10 pointer-events-none" style={{ background: "linear-gradient(90deg, hsl(var(--background)), transparent)" }} />
+      <div className="absolute right-0 top-0 bottom-0 w-24 z-10 pointer-events-none" style={{ background: "linear-gradient(-90deg, hsl(var(--background)), transparent)" }} />
+      <motion.div
+        className="flex gap-4 w-max"
+        animate={{ x: ["0%", "-50%"] }}
+        transition={{ duration: 28, ease: "linear", repeat: Infinity }}
+      >
+        {doubled.map((item, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-2.5 px-5 py-2.5 rounded-full shrink-0 select-none"
+            style={{
+              background: "hsl(var(--card) / 0.6)",
+              border: "1px solid hsl(var(--border) / 0.4)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            {item.text.includes("Finch") ? (
+              <FinchBird size={14} variant="purple" />
+            ) : (
+              <item.icon className="w-3.5 h-3.5 shrink-0" style={{ color: "hsl(var(--primary) / 0.7)" }} />
+            )}
+            <span className="text-xs font-medium text-foreground/60 whitespace-nowrap">{item.text}</span>
+          </div>
+        ))}
+      </motion.div>
+    </div>
+  );
+};
+
+// ─── Floating hero badge ───────────────────────────────────────────────────────
+
+const FloatingBadge = ({
+  children, style, delay = 0,
+}: {
+  children: React.ReactNode;
+  style: React.CSSProperties;
+  delay?: number;
+}) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.8 }}
+    animate={{ opacity: 1, scale: 1, y: [0, -8, 0] }}
+    transition={{
+      opacity: { delay, duration: 0.5 },
+      scale: { delay, duration: 0.5, type: "spring", stiffness: 300 },
+      y: { delay: delay + 0.5, duration: 3.5 + delay, repeat: Infinity, ease: "easeInOut" },
+    }}
+    className="absolute hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold pointer-events-none select-none"
+    style={{
+      backdropFilter: "blur(12px)",
+      border: "1px solid hsl(var(--primary) / 0.2)",
+      background: "hsl(var(--primary) / 0.08)",
+      color: "hsl(var(--primary) / 0.85)",
+      ...style,
+    }}
+  >
+    {children}
+  </motion.div>
+);
+
+// ─── How it works step ────────────────────────────────────────────────────────
+
+const HOW_STEPS = [
+  {
+    n: "01", title: "Add a task",
+    desc: "Drop anything on your mind into the Backlog. Let Finch AI break it into steps if it feels too big.",
+    color: "#7C3AED",
+  },
+  {
+    n: "02", title: "Start a session",
+    desc: "Pick a duration — 5 min, 25 min, or 60 min. See exactly when you'll be done.",
+    color: "#06B6D4",
+  },
+  {
+    n: "03", title: "Build momentum",
+    desc: "Earn focus points, keep your streak, and watch your productivity compound day over day.",
+    color: "#10B981",
+  },
+];
 
 // ─── Feature data — each with unique accent ───────────────────────────────────
 
@@ -59,50 +367,53 @@ const BENTO = [
   },
 ];
 
-const PRICING_FEATURES = [
-  "Unlimited tasks & subtasks",
-  "AI task breakdown with Finch",
-  "Focus sessions & timer",
-  "Kanban board with drag & drop",
-  "Focus score & streaks",
-  "GDPR compliant & encrypted",
-];
 
 // ─── App mockup (hero right panel) ───────────────────────────────────────────
 
-const AppMockup = () => (
+const AppMockup = ({ isLight = false }: { isLight?: boolean }) => (
   <div className="relative w-full">
-    {/* Purple glow underneath */}
+    {/* Glow underneath */}
     <div
       className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-4/5 h-20 blur-[50px] pointer-events-none"
-      style={{ background: "radial-gradient(ellipse, rgba(124,58,237,0.55) 0%, transparent 70%)" }}
+      style={{ background: isLight
+        ? "radial-gradient(ellipse, rgba(124,58,237,0.18) 0%, transparent 70%)"
+        : "radial-gradient(ellipse, rgba(124,58,237,0.55) 0%, transparent 70%)" }}
     />
-    {/* Teal secondary glow */}
     <div
       className="absolute -bottom-2 right-0 w-1/2 h-12 blur-[40px] pointer-events-none"
-      style={{ background: "radial-gradient(ellipse, rgba(6,182,212,0.3) 0%, transparent 70%)" }}
+      style={{ background: isLight
+        ? "radial-gradient(ellipse, rgba(6,182,212,0.10) 0%, transparent 70%)"
+        : "radial-gradient(ellipse, rgba(6,182,212,0.3) 0%, transparent 70%)" }}
     />
 
     {/* Browser window */}
     <div
       className="rounded-2xl overflow-hidden relative"
       style={{
-        background: "hsl(240 22% 9%)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.06)",
+        background: isLight ? "hsl(252 30% 97%)" : "hsl(240 22% 9%)",
+        border: isLight ? "1px solid rgba(0,0,0,0.08)" : "1px solid rgba(255,255,255,0.07)",
+        boxShadow: isLight
+          ? "0 24px 80px rgba(124,58,237,0.12), 0 4px 20px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)"
+          : "0 40px 100px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04), inset 0 1px 0 rgba(255,255,255,0.06)",
       }}
     >
       {/* Chrome bar */}
       <div
         className="flex items-center gap-2 px-4 h-9 shrink-0"
-        style={{ background: "hsl(240 22% 7%)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{
+          background: isLight ? "hsl(252 30% 93%)" : "hsl(240 22% 7%)",
+          borderBottom: isLight ? "1px solid rgba(0,0,0,0.07)" : "1px solid rgba(255,255,255,0.06)",
+        }}
       >
         {["#EF4444", "#F59E0B", "#22C55E"].map((c, i) => (
-          <div key={i} className="w-2.5 h-2.5 rounded-full opacity-50" style={{ background: c }} />
+          <div key={i} className="w-2.5 h-2.5 rounded-full opacity-60" style={{ background: c }} />
         ))}
         <div
           className="mx-auto px-6 py-0.5 rounded text-[10px]"
-          style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.2)" }}
+          style={{
+            background: isLight ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.05)",
+            color: isLight ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.2)",
+          }}
         >
           focusnest.app/dashboard
         </div>
@@ -113,7 +424,11 @@ const AppMockup = () => (
         {/* Sidebar */}
         <div
           className="flex flex-col items-center py-4 gap-3 shrink-0"
-          style={{ width: 44, background: "hsl(240 22% 7%)", borderRight: "1px solid rgba(255,255,255,0.05)" }}
+          style={{
+            width: 44,
+            background: isLight ? "hsl(252 30% 93%)" : "hsl(240 22% 7%)",
+            borderRight: isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.05)",
+          }}
         >
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs"
@@ -124,19 +439,27 @@ const AppMockup = () => (
               <div
                 key={i}
                 className="w-5 h-5 rounded-md"
-                style={{ background: i === 0 ? "rgba(124,58,237,0.25)" : "rgba(255,255,255,0.06)", opacity: o }}
+                style={{
+                  background: i === 0
+                    ? "rgba(124,58,237,0.25)"
+                    : isLight ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.06)",
+                  opacity: o,
+                }}
               />
             ))}
           </div>
         </div>
 
         {/* Main dashboard */}
-        <div className="flex-1 p-4 flex flex-col gap-3 overflow-hidden" style={{ background: "hsl(240 22% 8%)" }}>
+        <div
+          className="flex-1 p-4 flex flex-col gap-3 overflow-hidden"
+          style={{ background: isLight ? "hsl(252 30% 96%)" : "hsl(240 22% 8%)" }}
+        >
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[9px] mb-0.5" style={{ color: "rgba(255,255,255,0.22)" }}>Mon, March 17</p>
-              <p className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.82)" }}>Good morning, Alex 👋</p>
+              <p className="text-[9px] mb-0.5" style={{ color: isLight ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.22)" }}>Mon, March 17</p>
+              <p className="text-sm font-semibold" style={{ color: isLight ? "rgba(0,0,0,0.82)" : "rgba(255,255,255,0.82)" }}>Good morning, Alex 👋</p>
             </div>
             <div className="flex items-center gap-1.5">
               <motion.div
@@ -145,7 +468,7 @@ const AppMockup = () => (
                 animate={{ opacity: [1, 0.2, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
               />
-              <span className="text-[10px] font-mono" style={{ color: "rgba(255,255,255,0.22)" }}>14:22</span>
+              <span className="text-[10px] font-mono" style={{ color: isLight ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.22)" }}>14:22</span>
             </div>
           </div>
 
@@ -159,10 +482,14 @@ const AppMockup = () => (
               <div
                 key={s.label}
                 className="rounded-xl p-2.5"
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+                style={{
+                  background: isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.04)",
+                  border: isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.06)",
+                  boxShadow: isLight ? "0 1px 4px rgba(0,0,0,0.04)" : "none",
+                }}
               >
                 <p className="text-sm font-bold" style={{ color: s.color }}>{s.val}</p>
-                <p className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: "rgba(255,255,255,0.28)" }}>{s.label}</p>
+                <p className="text-[9px] uppercase tracking-wider mt-0.5" style={{ color: isLight ? "rgba(0,0,0,0.4)" : "rgba(255,255,255,0.28)" }}>{s.label}</p>
               </div>
             ))}
           </div>
@@ -170,7 +497,7 @@ const AppMockup = () => (
           {/* Active task */}
           <div
             className="rounded-xl p-3"
-            style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.2)" }}
+            style={{ background: "rgba(124,58,237,0.08)", border: "1px solid rgba(124,58,237,0.18)" }}
           >
             <div className="flex items-center gap-2 mb-1.5">
               <motion.div
@@ -179,31 +506,34 @@ const AppMockup = () => (
                 animate={{ opacity: [1, 0.4, 1] }}
                 transition={{ duration: 2.5, repeat: Infinity }}
               />
-              <p className="text-[11px] font-semibold" style={{ color: "rgba(255,255,255,0.8)" }}>Design homepage mockup</p>
+              <p className="text-[11px] font-semibold" style={{ color: isLight ? "rgba(30,10,60,0.85)" : "rgba(255,255,255,0.8)" }}>Design homepage mockup</p>
             </div>
             <div className="flex items-center gap-2">
               <span
                 className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                style={{ background: "rgba(124,58,237,0.25)", color: "#A78BFA" }}
+                style={{ background: "rgba(124,58,237,0.18)", color: "#7C3AED" }}
               >Doing</span>
-              <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.25)" }}>High energy · 3 subtasks</span>
+              <span className="text-[9px]" style={{ color: isLight ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.25)" }}>High energy · 3 subtasks</span>
             </div>
           </div>
 
           {/* Kanban columns */}
           <div className="flex gap-2 mt-auto">
             {[
-              { col: "Backlog", n: 5, c: "rgba(255,255,255,0.04)" },
-              { col: "To Do",   n: 3, c: "rgba(124,58,237,0.1)" },
-              { col: "Done",    n: 8, c: "rgba(16,185,129,0.1)" },
+              { col: "Backlog", n: 5, darkBg: "rgba(255,255,255,0.04)", lightBg: "rgba(0,0,0,0.04)" },
+              { col: "To Do",   n: 3, darkBg: "rgba(124,58,237,0.1)",   lightBg: "rgba(124,58,237,0.08)" },
+              { col: "Done",    n: 8, darkBg: "rgba(16,185,129,0.1)",   lightBg: "rgba(16,185,129,0.08)" },
             ].map((k) => (
               <div
                 key={k.col}
                 className="flex-1 rounded-xl p-2.5"
-                style={{ background: k.c, border: "1px solid rgba(255,255,255,0.05)" }}
+                style={{
+                  background: isLight ? k.lightBg : k.darkBg,
+                  border: isLight ? "1px solid rgba(0,0,0,0.06)" : "1px solid rgba(255,255,255,0.05)",
+                }}
               >
-                <p className="text-[9px] font-medium" style={{ color: "rgba(255,255,255,0.35)" }}>{k.col}</p>
-                <p className="text-lg font-bold mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>{k.n}</p>
+                <p className="text-[9px] font-medium" style={{ color: isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.35)" }}>{k.col}</p>
+                <p className="text-lg font-bold mt-0.5" style={{ color: isLight ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.45)" }}>{k.n}</p>
               </div>
             ))}
           </div>
@@ -231,6 +561,9 @@ const SectionBadge = ({ children, color = "primary" }: { children: React.ReactNo
 // ─── Landing ──────────────────────────────────────────────────────────────────
 
 const Landing = () => {
+  const { theme } = useTheme();
+  const isLight = theme === "light";
+
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: containerRef });
   const prefersReducedMotion = useReducedMotion();
@@ -266,30 +599,73 @@ const Landing = () => {
         style={{ scaleX: scrollYProgress, background: "linear-gradient(90deg, #7C3AED, #06B6D4)" }}
       />
 
-      {/* ── Background: 3 radial orbs + grain ──────────────────────────────── */}
+      {/* ── Background: animated orbs + grain ──────────────────────────────── */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
-        {/* Hero orb — mouse-tracked */}
+        {/* Hero orb — mouse-tracked + slow pulse */}
         <motion.div
           className="absolute rounded-full blur-[130px]"
           style={{
             width: 800, height: 800,
             top: -250, left: "40%", x: "-50%",
-            opacity: 0.13,
-            background: "radial-gradient(ellipse, #7C3AED 0%, transparent 70%)",
+            background: isLight
+              ? "radial-gradient(ellipse, #C4B5FD 0%, transparent 70%)"
+              : "radial-gradient(ellipse, #7C3AED 0%, transparent 70%)",
             translateX: springX,
             translateY: springY,
           }}
+          animate={prefersReducedMotion ? {} : {
+            opacity: isLight ? [0.18, 0.28, 0.18] : [0.10, 0.18, 0.10],
+            scale: [1, 1.08, 1],
+          }}
+          transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
         />
-        {/* Mid teal orb */}
-        <div
-          className="absolute rounded-full blur-[120px] opacity-[0.09]"
-          style={{ width: 600, height: 600, top: "45%", right: -100, background: "#06B6D4" }}
+        {/* Mid teal orb — oscillates */}
+        <motion.div
+          className="absolute rounded-full blur-[120px]"
+          style={{ width: 600, height: 600, top: "45%", right: -100, background: isLight ? "#A5F3FC" : "#06B6D4" }}
+          animate={prefersReducedMotion
+            ? { opacity: isLight ? 0.25 : 0.09 }
+            : { opacity: isLight ? [0.15, 0.25, 0.15] : [0.06, 0.13, 0.06], scale: [1, 1.12, 1], x: [0, -40, 0] }}
+          transition={{ duration: 9, repeat: Infinity, ease: "easeInOut", delay: 1 }}
         />
-        {/* Bottom purple orb */}
-        <div
-          className="absolute rounded-full blur-[100px] opacity-[0.10]"
-          style={{ width: 700, height: 700, bottom: -200, left: "20%", background: "#7C3AED" }}
+        {/* Bottom purple orb — oscillates opposite phase */}
+        <motion.div
+          className="absolute rounded-full blur-[100px]"
+          style={{ width: 700, height: 700, bottom: -200, left: "20%", background: isLight ? "#DDD6FE" : "#7C3AED" }}
+          animate={prefersReducedMotion
+            ? { opacity: isLight ? 0.30 : 0.10 }
+            : { opacity: isLight ? [0.20, 0.32, 0.20] : [0.07, 0.14, 0.07], scale: [1, 1.1, 1], x: [0, 30, 0] }}
+          transition={{ duration: 11, repeat: Infinity, ease: "easeInOut", delay: 2.5 }}
         />
+        {/* Accent pink orb — mid-left */}
+        <motion.div
+          className="absolute rounded-full blur-[110px]"
+          style={{ width: 400, height: 400, top: "30%", left: "-5%", background: isLight ? "#FBCFE8" : "#EC4899" }}
+          animate={prefersReducedMotion
+            ? { opacity: isLight ? 0.22 : 0.05 }
+            : { opacity: isLight ? [0.12, 0.22, 0.12] : [0.03, 0.08, 0.03], y: [0, -50, 0], scale: [1, 1.15, 1] }}
+          transition={{ duration: 13, repeat: Infinity, ease: "easeInOut", delay: 4 }}
+        />
+        {/* Small bright particle — top right */}
+        <motion.div
+          className="absolute rounded-full blur-[60px]"
+          style={{ width: 200, height: 200, top: "15%", right: "20%", background: isLight ? "#C4B5FD" : "#A78BFA" }}
+          animate={prefersReducedMotion
+            ? { opacity: isLight ? 0.20 : 0.07 }
+            : { opacity: isLight ? [0.12, 0.22, 0.12] : [0.04, 0.12, 0.04], scale: [0.8, 1.3, 0.8] }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+        />
+        {/* Small teal particle — lower right */}
+        <motion.div
+          className="absolute rounded-full blur-[50px]"
+          style={{ width: 160, height: 160, bottom: "25%", right: "12%", background: isLight ? "#99F6E4" : "#06B6D4" }}
+          animate={prefersReducedMotion
+            ? { opacity: isLight ? 0.25 : 0.07 }
+            : { opacity: isLight ? [0.15, 0.28, 0.15] : [0.05, 0.14, 0.05], y: [0, 25, 0], scale: [1, 1.2, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+        />
+        {/* Hero section has its own HeroBackground canvas — see below */}
+
         {/* Grain texture */}
         <svg className="absolute inset-0 w-full h-full opacity-[0.025]" style={{ mixBlendMode: "overlay" }}>
           <filter id="grain-landing">
@@ -301,68 +677,94 @@ const Landing = () => {
       </div>
 
       {/* ─── Navbar ────────────────────────────────────────────────────────── */}
-      <motion.nav
-        initial={{ y: -16, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="sticky top-0 z-50 flex items-center justify-between px-6 md:px-12 py-4 transition-all duration-300"
-        style={{
-          background: scrolled ? "hsl(var(--background) / 0.92)" : "transparent",
-          backdropFilter: scrolled ? "blur(20px) saturate(150%)" : "none",
-          borderBottom: scrolled ? "0.5px solid hsl(var(--border) / 0.5)" : "0.5px solid transparent",
-          boxShadow: scrolled ? "0 4px 24px rgba(0,0,0,0.15)" : "none",
-        }}
-      >
-        <div className="flex items-center gap-2.5">
-          <motion.div
-            animate={prefersReducedMotion ? {} : { scale: [1, 1.06, 1] }}
-            transition={{ delay: 0.4, duration: 0.7, ease: "easeInOut" }}
-            whileHover={{ rotate: 6, scale: 1.08, transition: { type: "spring", stiffness: 400 } }}
-            className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg"
-            style={{ background: "hsl(var(--primary))", boxShadow: "0 4px 14px rgba(124,58,237,0.4)" }}
-          >
-            <span className="text-white font-bold text-sm">F</span>
-          </motion.div>
-          <span className="font-bold text-[15px] tracking-tight">
-            Focus<span className="text-primary">Nest</span>
-          </span>
-        </div>
-
-        <div className="hidden md:flex items-center gap-0.5">
-          {[
-            { label: "Features", href: "#features" },
-            { label: "How It Works", href: "#how-it-works" },
-            { label: "Pricing", href: "#pricing" },
-          ].map((l) => (
-            <a
-              key={l.label}
-              href={l.href}
-              className="px-3.5 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-white/5"
+      <div className="sticky top-0 z-50 px-4 md:px-8 pt-4 pb-2 pointer-events-none">
+        <motion.nav
+          initial={{ y: -20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="pointer-events-auto flex items-center justify-between px-7 py-4 rounded-2xl mx-auto max-w-[1280px] transition-all duration-500"
+          style={{
+            background: scrolled
+              ? "hsl(var(--background) / 0.90)"
+              : "hsl(var(--background) / 0.60)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: scrolled
+              ? "1px solid hsl(var(--border) / 0.4)"
+              : "1px solid rgba(255,255,255,0.07)",
+            boxShadow: scrolled
+              ? "0 8px 32px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.04)"
+              : "0 4px 24px rgba(0,0,0,0.15)",
+          }}
+        >
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <motion.div
+              animate={prefersReducedMotion ? {} : { scale: [1, 1.06, 1] }}
+              transition={{ delay: 0.4, duration: 0.7, ease: "easeInOut" }}
+              whileHover={{ rotate: 6, scale: 1.1, transition: { type: "spring", stiffness: 400 } }}
+              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg"
+              style={{ background: "hsl(var(--primary))", boxShadow: "0 4px 14px rgba(124,58,237,0.45)" }}
             >
-              {l.label}
-            </a>
-          ))}
-        </div>
+              <span className="text-white font-bold text-sm">F</span>
+            </motion.div>
+            <span className="font-bold text-[16px] tracking-tight">
+              Focus<span className="text-primary">Nest</span>
+            </span>
+          </div>
 
-        <div className="flex items-center gap-3">
-          <Link to="/login" className="hidden md:block text-sm text-muted-foreground hover:text-foreground transition-colors font-medium">
-            Sign in
-          </Link>
-          <Link to="/register">
-            <motion.button
-              whileHover={{ scale: 1.03, boxShadow: "0 6px 28px rgba(124,58,237,0.45)" }}
-              whileTap={{ scale: 0.97 }}
-              className="flex items-center gap-1.5 text-white font-semibold rounded-xl text-sm px-4 py-2.5 transition-all"
-              style={{ background: "hsl(var(--primary))", boxShadow: "0 2px 12px rgba(124,58,237,0.3)" }}
+          {/* Center links */}
+          <div className="hidden md:flex items-center gap-1.5 px-2 py-1.5 rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }}>
+            {[
+              { label: "Features", href: "#features" },
+              { label: "How It Works", href: "#how-it-works" },
+            ].map((l) => (
+              <a
+                key={l.label}
+                href={l.href}
+                className="relative px-5 py-2 text-[14px] font-medium text-muted-foreground/75 hover:text-foreground rounded-lg transition-all duration-200 hover:bg-white/[0.06]"
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-3">
+            <Link
+              to="/login"
+              className="hidden md:flex items-center h-10 px-5 rounded-xl text-[14px] font-medium text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.06] transition-all duration-200"
             >
-              Get started free <ArrowRight className="w-3.5 h-3.5" />
-            </motion.button>
-          </Link>
-        </div>
-      </motion.nav>
+              Sign in
+            </Link>
+            <div className="hidden md:block w-px h-5" style={{ background: "rgba(255,255,255,0.12)" }} />
+            <Link to="/register">
+              <motion.button
+                whileHover={{ scale: 1.04, boxShadow: "0 6px 24px rgba(124,58,237,0.5)" }}
+                whileTap={{ scale: 0.97 }}
+                className="relative overflow-hidden flex items-center gap-2 text-white font-semibold rounded-xl text-[14px] h-10 px-5 transition-all"
+                style={{ background: "hsl(var(--primary))", boxShadow: "0 2px 12px rgba(124,58,237,0.35)" }}
+              >
+                <motion.span
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
+                  animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "linear", repeatDelay: 2 }}
+                />
+                Get started free
+                <ArrowRight className="w-4 h-4" />
+              </motion.button>
+            </Link>
+          </div>
+        </motion.nav>
+      </div>
 
       {/* ─── Hero — asymmetric split ────────────────────────────────────────── */}
-      <section className="relative z-10 px-6 md:px-12 pt-16 pb-8 max-w-7xl mx-auto">
+      <section className="relative overflow-hidden z-10" style={{ cursor: "none" }}>
+        {/* Interactive canvas bg — dots, repel, ripples, glow */}
+        {!prefersReducedMotion && <HeroBackground isLight={isLight} />}
+
+        <div className="relative px-6 md:px-12 pt-16 pb-8 max-w-7xl mx-auto" style={{ zIndex: 1, cursor: "auto" }}>
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
 
           {/* Left: text + CTAs */}
@@ -498,11 +900,21 @@ const Landing = () => {
               transition={{ delay: 0.58 }}
               className="text-xs text-muted-foreground/40"
             >
-              No credit card · Free forever plan
+              No credit card · No paywalls · Free to try
             </motion.p>
           </div>
 
-          {/* Right: tilted app mockup */}
+          {/* Right: tilted app mockup + floating badges */}
+          <div className="relative hidden lg:block">
+            <FloatingBadge style={{ top: "8%", right: "5%" }} delay={1.0}>
+              <Sparkles className="w-3 h-3" /> AI-powered
+            </FloatingBadge>
+            <FloatingBadge style={{ top: "55%", left: "4%" }} delay={1.4}>
+              <Zap className="w-3 h-3" /> ADHD-friendly
+            </FloatingBadge>
+            <FloatingBadge style={{ bottom: "14%", right: "8%" }} delay={1.8}>
+              <Heart className="w-3 h-3" /> No shame, ever
+            </FloatingBadge>
           <motion.div
             initial={{ opacity: 0, x: 40, rotateY: -12 }}
             animate={{ opacity: 1, x: 0, rotateY: -6 }}
@@ -518,15 +930,15 @@ const Landing = () => {
               rotateX: 0,
               transition: { duration: 0.6, ease: "easeOut" },
             }}
-            className="hidden lg:block"
           >
             <motion.div
               animate={prefersReducedMotion ? {} : { y: [0, -9, 0] }}
               transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 1.5 }}
             >
-              <AppMockup />
+              <AppMockup isLight={isLight} />
             </motion.div>
           </motion.div>
+          </div>
 
           {/* Mobile mockup (no perspective) */}
           <motion.div
@@ -538,7 +950,13 @@ const Landing = () => {
             <AppMockup />
           </motion.div>
         </div>
+        </div>
       </section>
+
+      {/* ─── Marquee ticker ──────────────────────────────────────────────────── */}
+      <div className="relative z-10 max-w-7xl mx-auto px-0 pb-4">
+        <Marquee />
+      </div>
 
       {/* ─── Features — bento grid ───────────────────────────────────────────── */}
       <section id="features" className="py-24 px-6 md:px-12 relative z-10">
@@ -593,25 +1011,29 @@ const Landing = () => {
                   className="group relative rounded-2xl p-6 overflow-hidden cursor-pointer h-full"
                   style={{
                     background: `linear-gradient(135deg, ${f.accent}08 0%, transparent 60%), hsl(var(--card))`,
-                    border: "1px solid rgba(255,255,255,0.06)",
+                    border: `1px solid ${f.accent}22`,
                     borderTop: `2px solid ${f.accent}`,
                     boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 8px 24px rgba(0,0,0,0.08)",
                     minHeight: "100%",
                   }}
                 >
+                  {/* Animated gradient sweep */}
+                  <motion.div
+                    className="absolute inset-0 rounded-2xl pointer-events-none"
+                    style={{
+                      background: `linear-gradient(90deg, ${f.accent}, #06B6D4, #EC4899, ${f.accent})`,
+                      backgroundSize: "300% 100%",
+                      opacity: isLight ? 0.05 : 0.10,
+                    }}
+                    animate={{ backgroundPosition: ["0% 0%", "100% 0%", "0% 0%"] }}
+                    transition={{ duration: 6 + i * 0.8, repeat: Infinity, ease: "linear" }}
+                  />
+
                   {/* Hover glow */}
                   <motion.div
                     className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-2xl"
                     style={{ background: `radial-gradient(circle at 30% 40%, ${f.accent}18 0%, transparent 60%)` }}
                   />
-
-                  {/* Ghost number */}
-                  <span
-                    className="absolute bottom-2 right-4 font-mono font-black select-none pointer-events-none leading-none"
-                    style={{ fontSize: 64, color: `${f.accent}07` }}
-                  >
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
 
                   {/* "Try it →" label — slides in on hover */}
                   <span
@@ -705,141 +1127,170 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* ─── Pricing ───────────────────────────────────────────────────────── */}
-      <section id="pricing" className="py-24 px-6 md:px-12 relative z-10">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
+      {/* ─── How it works ───────────────────────────────────────────────────── */}
+      <section className="py-24 px-6 md:px-12 relative z-10">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               className="flex justify-center"
             >
-              <SectionBadge>Simple pricing</SectionBadge>
+              <SectionBadge color="teal">Simple by design</SectionBadge>
             </motion.div>
             <motion.h2
               initial={{ opacity: 0, y: 16 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ delay: 0.05 }}
-              className="text-3xl md:text-4xl font-bold mb-3"
+              transition={{ delay: 0.06 }}
+              className="text-3xl md:text-5xl font-bold leading-tight mb-4"
             >
-              Always free. No tricks.
+              Three steps to actual focus
             </motion.h2>
-            <motion.p
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.1 }}
-              className="text-muted-foreground"
-            >
-              FocusNest's core features are free forever. No credit card, no trial, no nonsense.
-            </motion.p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-6 relative">
+            {/* Connector lines (desktop only) */}
+            <div className="hidden md:block absolute top-10 left-[33%] right-[33%] h-px" style={{ background: "linear-gradient(90deg, #7C3AED40, #06B6D440)" }} />
+            <div className="hidden md:block absolute top-10 left-[66%] right-0 h-px" style={{ background: "linear-gradient(90deg, #06B6D440, #10B98140)" }} />
 
-            {/* Free tier */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              whileHover={{ y: -6, transition: { duration: 0.25 } }}
-              transition={{ duration: 0.45 }}
-              className="rounded-2xl p-8"
-              style={{
-                background: "hsl(var(--card))",
-                border: "1px solid rgba(255,255,255,0.07)",
-                boxShadow: "0 2px 12px rgba(0,0,0,0.1)",
-              }}
-            >
-              <p className="text-sm font-semibold text-muted-foreground mb-1">Free</p>
-              <div className="flex items-baseline gap-1 mb-6">
-                <span className="text-4xl font-bold text-foreground">$0</span>
-                <span className="text-muted-foreground text-sm">/forever</span>
-              </div>
-              <div className="space-y-3 mb-8">
-                {PRICING_FEATURES.map((f) => (
-                  <div key={f} className="flex items-center gap-2.5">
-                    <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.2)" }}>
-                      <Check className="w-2.5 h-2.5" style={{ color: "#10B981" }} />
-                    </div>
-                    <span className="text-sm text-foreground/80">{f}</span>
-                  </div>
-                ))}
-              </div>
-              <Link to="/register" className="block">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  className="w-full py-3 rounded-xl text-white font-semibold text-sm transition-all"
-                  style={{ background: "hsl(var(--primary))", boxShadow: "0 4px 14px rgba(124,58,237,0.25)" }}
+            {HOW_STEPS.map((step, i) => (
+              <motion.div
+                key={step.n}
+                initial={{ opacity: 0, y: 32 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-60px" }}
+                transition={{ duration: 0.55, delay: i * 0.15, ease: [0.22, 1, 0.36, 1] }}
+                className="relative rounded-2xl p-7 overflow-hidden group"
+                style={{
+                  background: `linear-gradient(135deg, ${step.color}08 0%, transparent 60%), hsl(var(--card) / 0.7)`,
+                  border: `1px solid ${step.color}20`,
+                  backdropFilter: "blur(12px)",
+                }}
+                whileHover={{ y: -5, transition: { duration: 0.22 } }}
+              >
+                {/* Hover glow */}
+                <motion.div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-2xl"
+                  style={{ background: `radial-gradient(circle at 30% 30%, ${step.color}15 0%, transparent 65%)` }}
+                />
+
+                {/* Step number */}
+                <span
+                  className="block font-mono font-black mb-5 leading-none select-none"
+                  style={{ fontSize: 42, color: `${step.color}25` }}
                 >
-                  Get started free
+                  {step.n}
+                </span>
+
+                <div
+                  className="w-2 h-2 rounded-full mb-4"
+                  style={{ background: step.color, boxShadow: `0 0 10px ${step.color}60` }}
+                />
+
+                <h3 className="text-lg font-semibold text-foreground mb-2">{step.title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{step.desc}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── Free CTA banner ────────────────────────────────────────────────── */}
+      <section className="py-20 px-6 md:px-12 relative z-10">
+        <div className="max-w-3xl mx-auto text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="relative rounded-3xl p-12 overflow-hidden"
+            style={{
+              background: isLight
+                ? "linear-gradient(135deg, hsl(258 80% 97%) 0%, hsl(240 60% 94%) 100%)"
+                : "linear-gradient(135deg, hsl(258 60% 14%) 0%, hsl(240 35% 10%) 100%)",
+              border: isLight
+                ? "1px solid rgba(124,58,237,0.18)"
+                : "1px solid rgba(124,58,237,0.25)",
+              boxShadow: isLight
+                ? "0 8px 60px rgba(124,58,237,0.12), inset 0 1px 0 rgba(255,255,255,0.9)"
+                : "0 8px 60px rgba(124,58,237,0.25)",
+            }}
+          >
+            {/* Animated gradient border */}
+            <motion.div
+              className="absolute inset-0 rounded-3xl pointer-events-none"
+              style={{
+                background: "linear-gradient(90deg, #7C3AED, #06B6D4, #EC4899, #7C3AED)",
+                backgroundSize: "300% 100%",
+                opacity: isLight ? 0.08 : 0.18,
+              }}
+              animate={{ backgroundPosition: ["0% 0%", "100% 0%", "0% 0%"] }}
+              transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+            />
+            {/* Top glow */}
+            <div
+              className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-36 blur-[70px] pointer-events-none"
+              style={{ background: isLight
+                ? "radial-gradient(ellipse, rgba(124,58,237,0.15) 0%, transparent 70%)"
+                : "radial-gradient(ellipse, rgba(124,58,237,0.45) 0%, transparent 70%)" }}
+            />
+            <div className="relative z-10">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-6"
+                style={isLight
+                  ? { background: "rgba(124,58,237,0.1)", color: "#5B21B6", border: "1px solid rgba(124,58,237,0.2)" }
+                  : { background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Free trial — no card needed
+              </motion.div>
+              <motion.h2
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.06 }}
+                className="text-3xl md:text-4xl font-bold mb-4 leading-tight"
+                style={{ color: isLight ? "#1E1040" : "#ffffff" }}
+              >
+                Everything included.<br />
+                <span style={{ background: "linear-gradient(90deg, #7C3AED, #06B6D4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
+                  Completely free to try.
+                </span>
+              </motion.h2>
+              <motion.p
+                initial={{ opacity: 0 }}
+                whileInView={{ opacity: 1 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.12 }}
+                className="mb-8 max-w-lg mx-auto"
+                style={{ color: isLight ? "rgba(55,30,100,0.6)" : "rgba(255,255,255,0.5)" }}
+              >
+                No credit card. No paywalls. Just focus tools that work — for your brain, your way.
+              </motion.p>
+              <Link to="/register">
+                <motion.button
+                  whileHover={{ scale: 1.04, boxShadow: "0 14px 44px rgba(124,58,237,0.6)" }}
+                  whileTap={{ scale: 0.97 }}
+                  className="relative overflow-hidden inline-flex items-center gap-2 text-white font-semibold rounded-xl text-base px-8 py-3.5 transition-all"
+                  style={{ background: "hsl(var(--primary))", boxShadow: "0 4px 20px rgba(124,58,237,0.35)" }}
+                >
+                  <motion.span
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.2) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
+                    animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+                    transition={{ duration: 2.5, repeat: Infinity, ease: "linear", repeatDelay: 1.5 }}
+                  />
+                  Start for free
+                  <motion.span animate={{ x: [0, 3, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}>
+                    <ArrowRight className="w-4 h-4" />
+                  </motion.span>
                 </motion.button>
               </Link>
-            </motion.div>
-
-            {/* Pro tier — animated gradient border */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              whileHover={{ y: -6, transition: { duration: 0.25 } }}
-              transition={{ duration: 0.45, delay: 0.08 }}
-              className="relative rounded-[18px] p-[1.5px]"
-              style={{ boxShadow: "0 8px 60px rgba(124,58,237,0.4), 0 0 0 1px rgba(124,58,237,0.2)" }}
-            >
-              {/* Animated gradient border */}
-              <motion.div
-                className="absolute inset-0 rounded-[18px]"
-                style={{ background: "linear-gradient(90deg, #7C3AED, #06B6D4, #EC4899, #7C3AED)", backgroundSize: "300% 100%" }}
-                animate={{ backgroundPosition: ["0% 0%", "100% 0%", "0% 0%"] }}
-                transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
-              />
-              {/* Inner card */}
-              <div
-                className="relative rounded-2xl p-8 overflow-hidden h-full"
-                style={{ background: "linear-gradient(135deg, hsl(258 60% 18%) 0%, hsl(240 35% 12%) 100%)" }}
-              >
-                {/* Top glow */}
-                <div
-                  className="absolute top-0 left-0 right-0 h-32 pointer-events-none"
-                  style={{ background: "radial-gradient(ellipse at 50% 0%, rgba(124,58,237,0.35) 0%, transparent 70%)" }}
-                />
-                <div className="relative z-10">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-semibold text-white/80">Pro</p>
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider" style={{ background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.6)" }}>
-                      Coming soon
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-1 mb-6">
-                    <span className="text-4xl font-bold text-white">$8</span>
-                    <span className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>/month</span>
-                  </div>
-                  <div className="space-y-3 mb-8">
-                    {["Everything in Free", "Priority AI responses", "Advanced analytics", "Team workspaces", "Custom integrations", "Priority support"].map((f) => (
-                      <div key={f} className="flex items-center gap-2.5">
-                        <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.12)" }}>
-                          <Check className="w-2.5 h-2.5 text-white" />
-                        </div>
-                        <span className="text-sm" style={{ color: "rgba(255,255,255,0.75)" }}>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    disabled
-                    className="w-full py-3 rounded-xl font-semibold text-sm transition-all cursor-not-allowed"
-                    style={{ background: "rgba(255,255,255,0.9)", color: "#7C3AED" }}
-                  >
-                    Coming soon
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-
-          </div>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -864,7 +1315,6 @@ const Landing = () => {
           <div className="flex items-center gap-6 text-sm text-muted-foreground">
             <Link to="/login" className="hover:text-foreground transition-colors">Sign in</Link>
             <Link to="/register" className="hover:text-foreground transition-colors">Register</Link>
-            <Link to="/pricing" className="hover:text-foreground transition-colors">Pricing</Link>
             <div className="flex items-center gap-1.5 font-medium text-xs" style={{ color: "#10B981" }}>
               <ShieldCheck className="w-3.5 h-3.5" />GDPR
             </div>

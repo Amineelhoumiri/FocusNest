@@ -1,198 +1,413 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
-  ArrowLeft, Zap, Leaf, GripVertical, Plus, Trash2, Sparkles,
-  Loader2, Check, Play, CheckCircle2, X, Trophy,
+  ArrowLeft, Zap, Leaf, Minus, Plus, Trash2, Sparkles,
+  Loader2, Check, X, Pencil, Save, FileText,
 } from "lucide-react";
 import { useParams, useNavigate } from "react-router-dom";
-import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  KeyboardSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import confetti from "canvas-confetti";
 import { toast } from "sonner";
 import { useFocusScore } from "@/context/FocusScoreContext";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { useTheme } from "@/context/ThemeContext";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface TaskMeta {
   id: string;
   name: string;
-  energy: "high" | "low";
   column: string;
-  due_date?: string | null;
   notes?: string;
 }
 
 interface Subtask {
   subtask_id: string;
   subtask_name: string;
-  subtask_status: string;
-  energy_level: "High" | "Low";
+  subtask_status: string; // "Backlog" | "Ready" | "Doing" | "Done"
+  energy_level: "High" | "Medium" | "Low";
+  notes?: string;
   is_approved: boolean;
 }
 
 // ─── Column Definitions ───────────────────────────────────────────────────────
 
-const columns = [
-  { id: "backlog", label: "Backlog", backendValue: "Backlog" },
-  { id: "todo",    label: "To Do",   backendValue: "Ready"   },
-  { id: "doing",   label: "Doing",   backendValue: "Doing"   },
-  { id: "done",    label: "Done",    backendValue: "Done"    },
-];
+const COLUMNS = [
+  { id: "backlog", label: "Backlog", backendValue: "Backlog", darkDot: "rgba(255,255,255,0.22)", lightDot: "#c8c6d4" },
+  { id: "todo",    label: "To Do",   backendValue: "Ready",   darkDot: "#7c6ff7",                lightDot: "#7c6ff7" },
+  { id: "doing",   label: "Doing",   backendValue: "Doing",   darkDot: "#EF9F27",                lightDot: "#BA7517" },
+  { id: "done",    label: "Done",    backendValue: "Done",    darkDot: "#1D9E75",                lightDot: "#0F6E56" },
+] as const;
 
-const columnMeta: Record<string, {
-  accent: string;
-  accentDim: string;
-  badgeBg: string;
-  headerBg: string;
-  colBg: string;
-  colBorder: string;
-}> = {
-  backlog: {
-    accent:     "#64748B",
-    accentDim:  "#94A3B8",
-    badgeBg:    "rgba(100,116,139,0.18)",
-    headerBg:   "rgba(100,116,139,0.06)",
-    colBg:      "rgba(100,116,139,0.025)",
-    colBorder:  "rgba(100,116,139,0.18)",
-  },
-  todo: {
-    accent:     "#3B82F6",
-    accentDim:  "#60A5FA",
-    badgeBg:    "rgba(59,130,246,0.18)",
-    headerBg:   "rgba(59,130,246,0.06)",
-    colBg:      "rgba(59,130,246,0.025)",
-    colBorder:  "rgba(59,130,246,0.18)",
-  },
-  doing: {
-    accent:     "#F59E0B",
-    accentDim:  "#FBBF24",
-    badgeBg:    "rgba(245,158,11,0.18)",
-    headerBg:   "rgba(245,158,11,0.06)",
-    colBg:      "rgba(245,158,11,0.025)",
-    colBorder:  "rgba(245,158,11,0.18)",
-  },
-  done: {
-    accent:     "#10B981",
-    accentDim:  "#34D399",
-    badgeBg:    "rgba(16,185,129,0.18)",
-    headerBg:   "rgba(16,185,129,0.06)",
-    colBg:      "rgba(16,185,129,0.025)",
-    colBorder:  "rgba(16,185,129,0.18)",
-  },
-};
-
-const frontendStatus = (backendVal: string) => {
+function frontendStatus(backendVal: string): string {
   if (backendVal === "Ready") return "todo";
   return backendVal.toLowerCase();
-};
-
-const energyBorderColor = (energy: "High" | "Low") =>
-  energy === "High" ? "#7C3AED" : "#3B82F6";
+}
 
 // ─── Subtask Card ─────────────────────────────────────────────────────────────
 
 const SubtaskCard = ({
   subtask,
-  index,
-  colId,
   onApprove,
   onDelete,
+  onFocus,
+  isLight,
+  index,
 }: {
   subtask: Subtask;
-  index: number;
-  colId: string;
   onApprove: (id: string) => void;
   onDelete: (id: string) => void;
+  onFocus: (id: string) => void;
+  isLight: boolean;
+  index: number;
 }) => {
-  const isDone    = subtask.subtask_status === "Done";
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: subtask.subtask_id,
+  });
   const isPending = subtask.is_approved === false;
-  const border    = energyBorderColor(subtask.energy_level);
+  const isDone = subtask.subtask_status === "Done";
+
+  const energyColor = subtask.energy_level === "High"
+    ? { bg: isLight ? "rgba(124,58,237,0.08)" : "rgba(124,58,237,0.12)", text: isLight ? "#534AB7" : "#a89cf7" }
+    : subtask.energy_level === "Medium"
+    ? { bg: isLight ? "rgba(239,159,39,0.08)" : "rgba(239,159,39,0.12)", text: isLight ? "#854F0B" : "#EF9F27" }
+    : { bg: isLight ? "rgba(29,158,117,0.08)" : "rgba(29,158,117,0.12)", text: isLight ? "#0F6E56" : "#5DCAA5" };
+
+  const energyIcon = subtask.energy_level === "High"
+    ? <Zap style={{ width: 8, height: 8 }} />
+    : subtask.energy_level === "Medium"
+    ? <Minus style={{ width: 8, height: 8 }} />
+    : <Leaf style={{ width: 8, height: 8 }} />;
 
   return (
-    <Draggable draggableId={subtask.subtask_id} index={index} isDragDisabled={isPending}>
-      {(provided, snapshot) => (
-        <motion.div
-          ref={provided.innerRef as any}
-          {...(provided.draggableProps as any)}
-          layout
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.04, duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-          className="mb-2"
-          style={{ ...provided.draggableProps.style }}
-        >
-          <motion.div
-            whileHover={snapshot.isDragging ? {} : { y: -2, boxShadow: "var(--card-shadow-hover)" }}
-            transition={{ duration: 0.2 }}
-            className="relative group"
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      {...attributes}
+      {...listeners}
+    >
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: isDone ? 0.6 : 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: -4 }}
+        transition={{ delay: index * 0.03, duration: 0.18 }}
+        className="group"
+        style={{
+          borderRadius: 12,
+          padding: "10px 12px",
+          background: isLight ? "#ffffff" : "rgba(30,28,46,1)",
+          border: isPending
+            ? `1px solid ${isLight ? "rgba(124,111,247,0.22)" : "rgba(124,111,247,0.22)"}`
+            : `1px solid ${isLight ? "rgba(83,74,183,0.09)" : "rgba(255,255,255,0.07)"}`,
+          cursor: "grab",
+          position: "relative",
+          userSelect: "none" as const,
+        }}
+      >
+        {/* Title row */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+          {isPending ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onApprove(subtask.subtask_id); }}
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 4,
+                flexShrink: 0,
+                marginTop: 2,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(124,111,247,0.15)",
+                border: "1px solid rgba(124,111,247,0.40)",
+                cursor: "pointer",
+              }}
+            >
+              <Check style={{ width: 9, height: 9, color: "#a89cf7" }} />
+            </button>
+          ) : null}
+
+          <p
             style={{
-              borderRadius: "0.75rem",
-              padding: "0.75rem 0.75rem 0.75rem 1rem",
-              background: snapshot.isDragging
-                ? "hsl(var(--accent))"
-                : isPending
-                ? "hsl(var(--primary) / 0.06)"
-                : "hsl(var(--card))",
-              border: snapshot.isDragging
-                ? "1px solid hsl(var(--primary) / 0.5)"
-                : isPending
-                ? "1px solid hsl(var(--primary) / 0.25)"
-                : "1px solid hsl(var(--border) / 0.55)",
-              borderLeft: `3px solid ${isPending ? "#7C3AED" : isDone ? "#10B981" : border}`,
-              boxShadow: snapshot.isDragging ? "0 16px 48px rgba(0,0,0,0.4)" : "var(--card-shadow)",
-              opacity: isDone ? 0.55 : 1,
+              flex: 1,
+              fontSize: 13,
+              fontWeight: 500,
+              lineHeight: "1.4",
+              textDecoration: isDone ? "line-through" : "none",
+              color: isPending
+                ? "rgba(124,111,247,0.55)"
+                : isDone
+                  ? (isLight ? "#a0a0a8" : "rgba(255,255,255,0.38)")
+                  : (isLight ? "#1a1830" : "rgba(255,255,255,0.88)"),
+              fontStyle: isPending ? "italic" : "normal",
             }}
           >
-            <div className="flex items-start gap-2">
-              {/* Drag handle / pending approve */}
-              {isPending ? (
+            {subtask.subtask_name}
+            {isPending && (
+              <span style={{ fontSize: 10, marginLeft: 6, color: "rgba(124,111,247,0.55)", fontStyle: "normal" }}>
+                AI · tap ✓ to approve
+              </span>
+            )}
+          </p>
+        </div>
+
+        {/* Meta row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* Energy chip */}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 3,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 20,
+              background: energyColor.bg,
+              color: energyColor.text,
+            }}
+          >
+            {energyIcon}
+            {subtask.energy_level}
+          </span>
+
+          {/* Notes hint */}
+          {subtask.notes && (
+            <FileText
+              style={{
+                width: 11,
+                height: 11,
+                color: isLight ? "rgba(83,74,183,0.38)" : "rgba(255,255,255,0.25)",
+              }}
+            />
+          )}
+
+          {/* Focus shortcut — only in Doing column */}
+          {subtask.subtask_status === "Doing" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <button
-                  onClick={() => onApprove(subtask.subtask_id)}
-                  title="Approve and add to board"
-                  className="mt-0.5 w-4 h-4 rounded border border-violet-400/50 flex items-center justify-center text-violet-400 hover:bg-violet-500/20 shrink-0 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); onFocus(subtask.subtask_id); }}
+                  className="opacity-0 group-hover:opacity-100"
+                  style={{
+                    marginLeft: "auto",
+                    height: 26,
+                    padding: "0 10px",
+                    borderRadius: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    border: `1px solid ${isLight ? "rgba(124,111,247,0.28)" : "rgba(124,111,247,0.28)"}`,
+                    background: isLight ? "rgba(124,111,247,0.08)" : "rgba(124,111,247,0.14)",
+                    color: isLight ? "#534AB7" : "#c4bbff",
+                    transition: "all 0.12s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = isLight ? "rgba(124,111,247,0.16)" : "rgba(124,111,247,0.24)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = isLight ? "rgba(124,111,247,0.08)" : "rgba(124,111,247,0.14)";
+                  }}
                 >
-                  <Check className="w-2.5 h-2.5" />
+                  Focus
                 </button>
-              ) : (
-                <div
-                  {...(provided.dragHandleProps as any)}
-                  className="mt-0.5 shrink-0 cursor-grab active:cursor-grabbing transition-opacity opacity-0 group-hover:opacity-40 hover:!opacity-70"
-                  style={{ color: "hsl(var(--muted-foreground))" }}
-                >
-                  <GripVertical className="w-3.5 h-3.5" />
-                </div>
-              )}
+              </TooltipTrigger>
+              <TooltipContent side="top">Start a session on this subtask</TooltipContent>
+            </Tooltip>
+          )}
 
-              <div className="flex-1 min-w-0">
-                <p className={`text-xs font-medium leading-snug ${
-                  isPending ? "text-violet-300/70 italic" : isDone ? "line-through text-muted-foreground" : "text-foreground/90"
-                }`}>
-                  {subtask.subtask_name}
-                  {isPending && <span className="ml-2 text-[10px] text-violet-400/60 not-italic">AI · tap ✓ to approve</span>}
-                </p>
+          {/* Delete button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(subtask.subtask_id); }}
+            className="opacity-0 group-hover:opacity-100"
+            style={{
+              marginLeft: subtask.subtask_status === "Doing" ? 0 : "auto",
+              padding: 3,
+              borderRadius: 6,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)",
+              transition: "color 0.12s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#f87171")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)")}
+          >
+            <Trash2 style={{ width: 12, height: 12 }} />
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
 
-                <span className={`inline-flex items-center gap-0.5 text-[9px] font-bold uppercase mt-1.5 px-1.5 py-0.5 rounded-full
-                  ${subtask.energy_level === "High"
-                    ? "bg-primary/10 text-primary/80"
-                    : "bg-blue-500/10 text-blue-400"}`}
-                >
-                  {subtask.energy_level === "High" ? <Zap className="w-2 h-2" /> : <Leaf className="w-2 h-2" />}
-                  {subtask.energy_level}
-                </span>
-              </div>
+// ─── Subtask Column ───────────────────────────────────────────────────────────
 
-              {/* Delete */}
-              <button
-                onClick={() => onDelete(subtask.subtask_id)}
-                className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground/40 hover:text-red-400 transition-all rounded shrink-0"
-              >
-                <X className="w-3 h-3" />
-              </button>
+const SubtaskColumn = ({
+  colId,
+  label,
+  dotColor,
+  items,
+  isLight,
+  onApprove,
+  onDelete,
+  onFocus,
+  onAddClick,
+}: {
+  colId: string;
+  label: string;
+  dotColor: string;
+  items: Subtask[];
+  isLight: boolean;
+  onApprove: (id: string) => void;
+  onDelete: (id: string) => void;
+  onFocus: (id: string) => void;
+  onAddClick: (colId: string) => void;
+}) => {
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `col-${colId}` });
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minWidth: 0,
+        borderRadius: 16,
+        background: isLight ? "rgba(240,238,255,0.40)" : "rgba(255,255,255,0.025)",
+        border: isLight ? "1px solid rgba(83,74,183,0.10)" : "1px solid rgba(255,255,255,0.05)",
+        minHeight: 200,
+      }}
+    >
+      {/* Column header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 12px 8px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor }} />
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.32)",
+            }}
+          >
+            {label}
+          </span>
+          <span style={{ fontSize: 11, color: isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.20)" }}>
+            {items.filter((s) => s.is_approved !== false).length}
+          </span>
+        </div>
+        <button
+          onClick={() => onAddClick(colId)}
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 6,
+            border: "none",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "transparent",
+            color: isLight ? "rgba(83,74,183,0.38)" : "rgba(255,255,255,0.20)",
+          }}
+        >
+          <Plus style={{ width: 13, height: 13 }} />
+        </button>
+      </div>
+
+      {/* Cards */}
+      <SortableContext items={items.map((s) => s.subtask_id)} strategy={verticalListSortingStrategy}>
+        <div
+          ref={setDropRef}
+          style={{
+            flex: 1,
+            padding: "0 8px 8px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            minHeight: 60,
+            borderRadius: "0 0 16px 16px",
+            transition: "background 0.15s",
+            background: isOver ? (isLight ? "rgba(83,74,183,0.05)" : "rgba(124,111,247,0.06)") : "transparent",
+          }}
+        >
+          <AnimatePresence initial={false}>
+            {items.map((sub, i) => (
+              <SubtaskCard
+                key={sub.subtask_id}
+                subtask={sub}
+                index={i}
+                isLight={isLight}
+                onApprove={onApprove}
+                onDelete={onDelete}
+                onFocus={onFocus}
+              />
+            ))}
+          </AnimatePresence>
+
+          {/* Empty state */}
+          {items.length === 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: 50,
+                borderRadius: 10,
+                border: `1.5px dashed ${isLight ? "rgba(83,74,183,0.12)" : "rgba(255,255,255,0.07)"}`,
+              }}
+            >
+              <span style={{ fontSize: 11, color: isLight ? "rgba(83,74,183,0.28)" : "rgba(255,255,255,0.15)" }}>
+                Drop here
+              </span>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </Draggable>
+          )}
+        </div>
+      </SortableContext>
+    </div>
   );
 };
 
@@ -202,18 +417,47 @@ const TaskBoard = () => {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
   const { addScore } = useFocusScore();
+  const { theme } = useTheme();
+  const isLight = theme === "light";
   const prefersReducedMotion = useReducedMotion();
 
+  // ── Data state ──
   const [task, setTask] = useState<TaskMeta | null>(null);
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [isLoadingTask, setIsLoadingTask] = useState(true);
-  const [isLoadingSubtasks, setIsLoadingSubtasks] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [blockMsg, setBlockMsg] = useState("");
 
-  const [addingIn, setAddingIn] = useState<string | null>(null);
-  const [newSubtaskName, setNewSubtaskName] = useState("");
-  const [newSubtaskEnergy, setNewSubtaskEnergy] = useState<"High" | "Low">("Low");
+  // ── Inline edit (parent task) ──
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editColumn, setEditColumn] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // ── Add Subtask dialog ──
+  const [showSubtaskDialog, setShowSubtaskDialog] = useState(false);
+  const [subtaskDialogCol, setSubtaskDialogCol] = useState<string | null>(null);
+  const [newSubtask, setNewSubtask] = useState({ name: "", energy: "Low" as "High" | "Medium" | "Low", notes: "" });
+
+  // ── DnD ──
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+
+  // ── Sensors ──
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  // ── Data fetching ──
+  const fetchSubtasks = useCallback(async () => {
+    if (!taskId) return;
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/subtasks`);
+      if (res.ok) setSubtasks(await res.json());
+    } catch {
+      toast.error("Failed to load subtasks");
+    }
+  }, [taskId]);
 
   const fetchTask = useCallback(async () => {
     if (!taskId) return;
@@ -224,9 +468,7 @@ const TaskBoard = () => {
       setTask({
         id: t.task_id,
         name: t.task_name,
-        energy: t.energy_level?.toLowerCase() as "high" | "low",
-        column: t.task_status === "Ready" ? "todo" : t.task_status?.toLowerCase(),
-        due_date: t.due_date,
+        column: t.task_status === "Ready" ? "todo" : (t.task_status?.toLowerCase() ?? "backlog"),
         notes: t.notes,
       });
     } catch {
@@ -236,84 +478,123 @@ const TaskBoard = () => {
     }
   }, [taskId, navigate]);
 
-  const fetchSubtasks = useCallback(async () => {
-    if (!taskId) return;
-    setIsLoadingSubtasks(true);
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks`);
-      if (res.ok) setSubtasks(await res.json());
-    } catch {
-      toast.error("Failed to load subtasks");
-    } finally {
-      setIsLoadingSubtasks(false);
+  useEffect(() => {
+    fetchTask();
+    fetchSubtasks();
+  }, [fetchTask, fetchSubtasks]);
+
+  // ── Auto-complete parent when all subtasks done ──
+  useEffect(() => {
+    const approved = subtasks.filter((s) => s.is_approved !== false);
+    const allDone = approved.length > 0 && approved.every((s) => s.subtask_status === "Done");
+    if (allDone && task && task.column !== "done") {
+      fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_status: "Done" }),
+      }).catch(() => {});
+      setTask((prev) => (prev ? { ...prev, column: "done" } : prev));
+      toast.success(`All subtasks done! "${task.name}" moved to Done.`, { duration: 3500 });
     }
-  }, [taskId]);
+  }, [subtasks, task, taskId]);
 
-  useEffect(() => { fetchTask(); fetchSubtasks(); }, [fetchTask, fetchSubtasks]);
+  // ── DnD handlers ──
+  const handleDragStart = (event: DragStartEvent) => {
+    setDragActiveId(event.active.id as string);
+  };
 
-  const handleDragEnd = async (result: DropResult) => {
-    const { destination, source, draggableId } = result;
-    if (!destination) return;
-    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+  const handleDragOver = (_event: DragOverEvent) => {};
 
-    const destColId = destination.droppableId;
-    const targetCol = columns.find((c) => c.id === destColId);
+  const handleDragEnd = async (result: DragEndEvent) => {
+    const { active, over } = result;
+    setDragActiveId(null);
+    if (!over) return;
+
+    const draggableId = active.id as string;
+    const overId = over.id as string;
+
+    const overSubtask = subtasks.find((s) => s.subtask_id === overId);
+    const overColId = overSubtask
+      ? frontendStatus(overSubtask.subtask_status)
+      : overId.replace("col-", "");
+    const targetCol = COLUMNS.find((c) => c.id === overColId);
     if (!targetCol) return;
 
-    if (destColId === "doing") {
-      const alreadyDoing = subtasks.find((s) => s.subtask_status === "Doing" && s.subtask_id !== draggableId);
+    const movedSub = subtasks.find((s) => s.subtask_id === draggableId);
+    if (!movedSub) return;
+    if (frontendStatus(movedSub.subtask_status) === overColId) return;
+
+    // Block: only 1 doing
+    if (overColId === "doing") {
+      const alreadyDoing = subtasks.find(
+        (s) => s.subtask_status === "Doing" && s.subtask_id !== draggableId,
+      );
       if (alreadyDoing) {
-        setBlockMsg(`Already focused on "${alreadyDoing.subtask_name}" — finish it first.`);
+        const msg = `Already focused on "${alreadyDoing.subtask_name}" — finish it first.`;
+        setBlockMsg(msg);
+        toast.error(msg);
         setTimeout(() => setBlockMsg(""), 3000);
         return;
       }
     }
 
-    if (destColId === "done" && source.droppableId !== "done") {
-      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 }, colors: ["#7C3AED", "#8B5CF6", "#A78BFA", "#10B981"] });
+    if (overColId === "done" && frontendStatus(movedSub.subtask_status) !== "done") {
+      confetti({ particleCount: 60, spread: 50, origin: { y: 0.6 }, colors: ["#7c6ff7", "#1D9E75"] });
       addScore(5);
     }
 
     setSubtasks((prev) =>
-      prev.map((s) => s.subtask_id === draggableId ? { ...s, subtask_status: targetCol.backendValue } : s)
+      prev.map((s) =>
+        s.subtask_id === draggableId ? { ...s, subtask_status: targetCol.backendValue } : s,
+      ),
     );
 
     try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks/${draggableId}`, {
+      await fetch(`/api/tasks/${taskId}/subtasks/${draggableId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subtask_status: targetCol.backendValue }),
       });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to update");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to move subtask");
+    } catch {
+      toast.error("Failed to move subtask");
       fetchSubtasks();
     }
   };
 
-  const handleCreateSubtask = async (colId: string) => {
-    if (!newSubtaskName.trim()) return;
-    const col = columns.find((c) => c.id === colId);
+  // ── Subtask dialog handlers ──
+  const handleAddClick = (colId: string) => {
+    setSubtaskDialogCol(colId);
+    setNewSubtask({ name: "", energy: "Low", notes: "" });
+    setShowSubtaskDialog(true);
+  };
+
+  const handleSubtaskDialogSave = async () => {
+    if (!newSubtask.name.trim() || !subtaskDialogCol) return;
+    const col = COLUMNS.find((c) => c.id === subtaskDialogCol);
     const tempId = `temp-${Date.now()}`;
-    const tempSubtask: Subtask = {
+    const tempSub: Subtask = {
       subtask_id: tempId,
-      subtask_name: newSubtaskName.trim(),
+      subtask_name: newSubtask.name.trim(),
       subtask_status: col?.backendValue ?? "Backlog",
-      energy_level: newSubtaskEnergy,
+      energy_level: newSubtask.energy,
+      notes: newSubtask.notes || undefined,
       is_approved: true,
     };
-    setSubtasks((prev) => [...prev, tempSubtask]);
-    setNewSubtaskName("");
-    setAddingIn(null);
+    setSubtasks((prev) => [...prev, tempSub]);
+    setShowSubtaskDialog(false);
+    setNewSubtask({ name: "", energy: "Low", notes: "" });
 
     try {
       await fetch(`/api/tasks/${taskId}/subtasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subtask_name: newSubtaskName.trim(), energy_level: newSubtaskEnergy, is_approved: true }),
+        body: JSON.stringify({
+          subtask_name: newSubtask.name.trim(),
+          energy_level: newSubtask.energy,
+          notes: newSubtask.notes || null,
+          is_approved: true,
+          subtask_status: col?.backendValue ?? "Backlog",
+        }),
       });
       fetchSubtasks();
     } catch {
@@ -322,8 +603,11 @@ const TaskBoard = () => {
     }
   };
 
+  // ── Approve/Delete/Generate handlers ──
   const handleApprove = async (subtaskId: string) => {
-    setSubtasks((prev) => prev.map((s) => s.subtask_id === subtaskId ? { ...s, is_approved: true } : s));
+    setSubtasks((prev) =>
+      prev.map((s) => (s.subtask_id === subtaskId ? { ...s, is_approved: true } : s)),
+    );
     try {
       await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
         method: "PATCH",
@@ -347,23 +631,6 @@ const TaskBoard = () => {
     }
   };
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks/generate`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error();
-      fetchSubtasks();
-      toast.success("AI subtasks generated! Review and approve below.");
-    } catch {
-      toast.error("Failed to generate subtasks");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
   const handleDeleteTask = async () => {
     try {
       await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
@@ -374,15 +641,67 @@ const TaskBoard = () => {
     }
   };
 
-  const handleStartSession = () => {
-    if (taskId) localStorage.setItem("activeTaskId", taskId);
-    navigate("/sessions");
+  // ── Focus shortcut ──
+  const handleFocusSubtask = (subtaskId: string) => {
+    const p = new URLSearchParams({
+      taskId:    taskId ?? "",
+      subtaskId,
+      autostart: "true",
+    });
+    navigate(`/sessions?${p}`);
   };
 
+  // ── Inline edit handlers ──
+  const handleStartEdit = () => {
+    if (!task) return;
+    setEditName(task.name);
+    setEditColumn(task.column);
+    setEditNotes(task.notes ?? "");
+    setIsEditing(true);
+  };
+
+  const handleSaveTask = async () => {
+    if (!editName.trim() || !task) return;
+    setIsSaving(true);
+    const backendStatus =
+      editColumn === "todo"
+        ? "Ready"
+        : editColumn.charAt(0).toUpperCase() + editColumn.slice(1);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_name: editName.trim(),
+          task_status: backendStatus,
+          notes: editNotes || null,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: editName.trim(),
+              column: editColumn,
+              notes: editNotes || undefined,
+            }
+          : prev,
+      );
+      setIsEditing(false);
+      toast.success("Task updated");
+    } catch {
+      toast.error("Failed to update task");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Loading/null guard ──
   if (isLoadingTask) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}>
+        <Loader2 style={{ width: 32, height: 32, color: "#7c6ff7", animation: "spin 1s linear infinite" }} />
       </div>
     );
   }
@@ -390,174 +709,305 @@ const TaskBoard = () => {
   if (!task) return null;
 
   const approvedSubtasks = subtasks.filter((s) => s.is_approved !== false);
-  const doneSubtasks     = subtasks.filter((s) => s.subtask_status === "Done");
-  const donePct          = approvedSubtasks.length > 0 ? (doneSubtasks.length / approvedSubtasks.length) * 100 : 0;
+  const doneSubtasks = subtasks.filter((s) => s.subtask_status === "Done");
+  const donePct = approvedSubtasks.length > 0 ? (doneSubtasks.length / approvedSubtasks.length) * 100 : 0;
 
   return (
-    <div className="h-full flex flex-col pb-20 md:pb-0 relative">
-
-      {/* ── Background orbs ── */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        {/* Purple blob — top-left */}
-        <motion.div
-          animate={prefersReducedMotion ? {} : {
-            x: [0, 30, 0], y: [0, 20, 0], scale: [1, 1.06, 1],
-          }}
-          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-          className="absolute -top-32 -left-24 w-96 h-96 rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(124,58,237,0.12) 0%, transparent 70%)",
-            filter: "blur(40px)",
-          }}
-        />
-        {/* Teal blob — bottom-right */}
-        <motion.div
-          animate={prefersReducedMotion ? {} : {
-            x: [0, -25, 0], y: [0, -20, 0], scale: [1, 1.04, 1],
-          }}
-          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut", delay: 3 }}
-          className="absolute -bottom-32 -right-24 w-96 h-96 rounded-full"
-          style={{
-            background: "radial-gradient(circle, rgba(20,184,166,0.08) 0%, transparent 70%)",
-            filter: "blur(40px)",
-          }}
-        />
-        {/* Grain */}
-        <svg className="absolute inset-0 w-full h-full opacity-[0.02]">
-          <filter id="board-grain">
-            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
-            <feColorMatrix type="saturate" values="0" />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#board-grain)" />
-        </svg>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column" }}>
 
       {/* ── Header ── */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: [0.4, 0, 0.2, 1] }}
-        className="relative z-10 shrink-0 mb-6"
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 0 16px 0",
+          flexShrink: 0,
+          gap: 12,
+        }}
       >
-        <div className="flex items-center gap-3 mb-3">
+        {/* Left */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+          {/* Back button */}
           <button
             onClick={() => navigate("/tasks")}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground/50 hover:text-foreground transition-colors duration-300"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              fontSize: 13,
+              fontWeight: 500,
+              color: isLight ? "rgba(83,74,183,0.50)" : "rgba(255,255,255,0.38)",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px 6px",
+              borderRadius: 8,
+              flexShrink: 0,
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = isLight ? "#534AB7" : "rgba(255,255,255,0.80)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = isLight ? "rgba(83,74,183,0.50)" : "rgba(255,255,255,0.38)")}
           >
-            <ArrowLeft className="w-4 h-4" /> Tasks
+            <ArrowLeft style={{ width: 16, height: 16 }} />
+            Tasks
           </button>
-        </div>
 
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            {/* Title with animated underline */}
-            <div className="relative inline-block">
-              <h1 className="text-2xl font-bold text-foreground truncate">{task.name}</h1>
-              <motion.div
-                className="absolute bottom-0 left-0 h-[2px] rounded-full"
-                style={{ background: "linear-gradient(90deg, hsl(var(--primary)), transparent)" }}
-                initial={{ width: 0 }}
-                animate={{ width: "100%" }}
-                transition={{ duration: 0.7, ease: [0.4, 0, 0.2, 1], delay: 0.3 }}
+          <span style={{ color: isLight ? "rgba(83,74,183,0.25)" : "rgba(255,255,255,0.18)", fontSize: 14 }}>
+            /
+          </span>
+
+          {isEditing ? (
+            /* ── Edit form ── */
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minWidth: 0 }}
+            >
+              <input
+                autoFocus
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveTask();
+                  if (e.key === "Escape") setIsEditing(false);
+                }}
+                placeholder="Task name…"
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: `1px solid ${isLight ? "rgba(124,111,247,0.40)" : "rgba(124,111,247,0.50)"}`,
+                  outline: "none",
+                  color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)",
+                  paddingBottom: 2,
+                  width: "100%",
+                }}
               />
-            </div>
-
-            <div className="flex items-center gap-3 mt-3 flex-wrap">
-              {/* Energy badge */}
-              <span className={`flex items-center gap-1 text-[10px] tracking-wide uppercase font-bold px-2.5 py-1 rounded-full
-                ${task.energy === "high"
-                  ? "bg-primary/10 text-primary/80 ring-1 ring-primary/20"
-                  : "bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20"}`}
-              >
-                {task.energy === "high" ? <Zap className="w-3 h-3" /> : <Leaf className="w-3 h-3" />}
-                {task.energy === "high" ? "High Energy" : "Low Energy"}
-              </span>
-
-              {task.column === "doing" && (
-                <button
-                  onClick={handleStartSession}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all"
-                  style={{ background: "rgba(124,58,237,0.15)", color: "#A78BFA", border: "1px solid rgba(124,58,237,0.3)" }}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {/* Status select */}
+                <select
+                  value={editColumn}
+                  onChange={(e) => setEditColumn(e.target.value)}
+                  style={{
+                    fontSize: 11, fontWeight: 600, borderRadius: 8, padding: "3px 8px",
+                    background: isLight ? "rgba(240,238,255,0.70)" : "rgba(255,255,255,0.08)",
+                    border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(255,255,255,0.12)",
+                    color: isLight ? "#534AB7" : "rgba(255,255,255,0.75)",
+                    outline: "none", cursor: "pointer",
+                  }}
                 >
-                  <Play className="w-3 h-3 fill-current" /> Start Session
-                </button>
-              )}
+                  <option value="backlog">Backlog</option>
+                  <option value="todo">To Do</option>
+                  <option value="doing">Doing</option>
+                  <option value="done">Done</option>
+                </select>
 
-              {/* Progress mini-bar */}
+                {/* Notes textarea */}
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Notes (optional)…"
+                  style={{
+                    width: "100%", fontSize: 11, borderRadius: 8, padding: "6px 10px",
+                    background: isLight ? "rgba(240,238,255,0.60)" : "rgba(255,255,255,0.06)",
+                    border: isLight ? "1px solid rgba(83,74,183,0.15)" : "1px solid rgba(255,255,255,0.10)",
+                    color: isLight ? "#1a1830" : "rgba(255,255,255,0.80)",
+                    outline: "none", resize: "none", boxSizing: "border-box" as const,
+                  }}
+                />
+              </div>
+
+              {/* Save / Cancel */}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  onClick={handleSaveTask}
+                  disabled={isSaving || !editName.trim()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "5px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    background: isLight ? "rgba(124,111,247,0.12)" : "rgba(124,111,247,0.18)",
+                    color: isLight ? "#534AB7" : "#a89cf7",
+                    border: "none", cursor: "pointer",
+                    opacity: (isSaving || !editName.trim()) ? 0.5 : 1,
+                  }}
+                >
+                  {isSaving ? <Loader2 style={{ width: 12, height: 12 }} /> : <Save style={{ width: 12, height: 12 }} />}
+                  {isSaving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={() => setIsEditing(false)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "5px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: isLight ? "rgba(83,74,183,0.45)" : "rgba(255,255,255,0.32)",
+                  }}
+                >
+                  <X style={{ width: 12, height: 12 }} /> Cancel
+                </button>
+              </div>
+            </motion.div>
+          ) : (
+            /* ── View mode ── */
+            <>
+              <h1
+                style={{
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                  flex: 1,
+                }}
+              >
+                {task.name}
+              </h1>
+
+              {/* Progress pill */}
               {approvedSubtasks.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <div className="w-24 h-[3px] rounded-full bg-border/30 overflow-hidden">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "3px 10px",
+                    borderRadius: 20,
+                    background: isLight ? "rgba(240,238,255,0.70)" : "rgba(124,111,247,0.08)",
+                    border: isLight ? "1px solid rgba(83,74,183,0.12)" : "1px solid rgba(124,111,247,0.15)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 60,
+                      height: 3,
+                      borderRadius: 2,
+                      background: isLight ? "rgba(83,74,183,0.12)" : "rgba(255,255,255,0.10)",
+                      overflow: "hidden",
+                    }}
+                  >
                     <motion.div
-                      className="h-full rounded-full"
-                      style={{ background: "linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary-bright)))" }}
-                      initial={{ width: 0 }}
+                      style={{ height: "100%", background: "#7c6ff7" }}
                       animate={{ width: `${donePct}%` }}
-                      transition={{ duration: 1, ease: [0.4, 0, 0.2, 1], delay: 0.5 }}
+                      transition={{ duration: 0.4 }}
                     />
                   </div>
-                  <span className="text-xs text-muted-foreground/50 font-mono">
-                    {doneSubtasks.length}/{approvedSubtasks.length} done
+                  <span style={{ fontSize: 11, color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.35)" }}>
+                    {doneSubtasks.length}/{approvedSubtasks.length}
                   </span>
                 </div>
               )}
-            </div>
-          </div>
+            </>
+          )}
+        </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* AI Generate button */}
-            <motion.button
-              whileHover={prefersReducedMotion ? {} : {
-                scale: 1.04,
-                boxShadow: "0 4px 20px rgba(124,58,237,0.4)",
-              }}
-              whileTap={{ scale: 0.97 }}
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="relative flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+        {/* Right actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {!isEditing && (
+            <button
+              onClick={handleStartEdit}
+              title="Edit task"
               style={{
-                background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(124,58,237,0.08))",
-                color: "#A78BFA",
-                border: "1px solid rgba(124,58,237,0.3)",
+                width: 32, height: 32, borderRadius: 8, border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "transparent",
+                color: isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = isLight ? "rgba(83,74,183,0.08)" : "rgba(124,111,247,0.12)";
+                e.currentTarget.style.color = isLight ? "#534AB7" : "#a89cf7";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)";
               }}
             >
-              {/* Animated gradient border shimmer */}
-              {!isGenerating && (
-                <motion.div
-                  className="absolute inset-0 rounded-lg pointer-events-none"
-                  style={{
-                    background: "linear-gradient(90deg, transparent, rgba(167,139,250,0.15), transparent)",
-                    backgroundSize: "200% 100%",
-                  }}
-                  animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
-                  transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
-                />
-              )}
-              {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-              {isGenerating ? "Generating…" : "AI Generate"}
-            </motion.button>
+              <Pencil style={{ width: 14, height: 14 }} />
+            </button>
+          )}
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button className="p-2 text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="bg-card border border-red-500/20 shadow-2xl sm:rounded-2xl max-w-sm">
-                <AlertDialogHeader>
-                  <AlertDialogTitle className="text-foreground">Delete this task?</AlertDialogTitle>
-                  <AlertDialogDescription className="text-red-400/80">
-                    This will permanently delete the task and all its subtasks.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter className="mt-4">
-                  <AlertDialogCancel className="bg-muted/50 text-foreground/70 border-border/30 hover:bg-muted hover:text-foreground">Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDeleteTask} className="bg-red-600 text-white hover:bg-red-700">Delete</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+          {/* AI Generate → /chat */}
+          <motion.button
+            whileHover={prefersReducedMotion ? {} : { scale: 1.03, boxShadow: "0 4px 20px rgba(124,58,237,0.30)" }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => navigate("/chat")}
+            style={{
+              position: "relative",
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600,
+              background: isLight
+                ? "linear-gradient(135deg, rgba(124,58,237,0.10), rgba(124,58,237,0.06))"
+                : "linear-gradient(135deg, rgba(124,58,237,0.18), rgba(124,58,237,0.10))",
+              color: isLight ? "#534AB7" : "#a89cf7",
+              border: isLight ? "1px solid rgba(124,58,237,0.22)" : "1px solid rgba(124,58,237,0.35)",
+              cursor: "pointer",
+              overflow: "hidden",
+            }}
+          >
+            <motion.div
+              style={{
+                position: "absolute", inset: 0, borderRadius: 10,
+                background: "linear-gradient(90deg, transparent, rgba(167,139,250,0.12), transparent)",
+                backgroundSize: "200% 100%",
+                pointerEvents: "none",
+              }}
+              animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: "linear" }}
+            />
+            <Sparkles style={{ width: 13, height: 13 }} />
+            AI Generate
+          </motion.button>
+
+          {/* Delete task */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                style={{
+                  width: 32, height: 32, borderRadius: 8, border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "transparent",
+                  color: isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)",
+                  transition: "all 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(248,113,113,0.10)";
+                  e.currentTarget.style.color = "#f87171";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = isLight ? "rgba(83,74,183,0.35)" : "rgba(255,255,255,0.22)";
+                }}
+              >
+                <Trash2 style={{ width: 14, height: 14 }} />
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the task and all its subtasks. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteTask}
+                  style={{ background: "#dc2626", color: "#fff" }}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
-      </motion.div>
+      </div>
 
       {/* ── Block message ── */}
       <AnimatePresence>
@@ -566,8 +1016,17 @@ const TaskBoard = () => {
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="relative z-10 p-3 rounded-xl mb-4 border-amber-500/30 border text-amber-400 text-sm font-medium shrink-0"
-            style={{ background: "rgba(245,158,11,0.08)" }}
+            style={{
+              marginBottom: 10,
+              padding: "10px 14px",
+              borderRadius: 10,
+              background: "rgba(239,159,39,0.10)",
+              border: "1px solid rgba(239,159,39,0.30)",
+              color: "#EF9F27",
+              fontSize: 13,
+              fontWeight: 500,
+              flexShrink: 0,
+            }}
           >
             {blockMsg}
           </motion.div>
@@ -575,201 +1034,209 @@ const TaskBoard = () => {
       </AnimatePresence>
 
       {/* ── Kanban Board ── */}
-      <div className="relative z-10 flex-1 overflow-x-auto overflow-y-auto md:overflow-hidden">
-        {isLoadingSubtasks ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <div className="flex flex-col md:grid md:grid-cols-4 gap-3 h-full pb-6 md:pb-0 min-w-[300px] md:min-w-0">
-              {columns.map((col, colIndex) => {
-                const meta = columnMeta[col.id];
-                const colSubtasks = subtasks.filter(
-                  (s) => frontendStatus(s.subtask_status) === col.id
-                );
-                const approvedCount = colSubtasks.filter((s) => s.is_approved !== false).length;
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            padding: "4px 0 24px",
+            alignItems: "flex-start",
+          }}
+        >
+          {COLUMNS.map((col) => {
+            const colItems = subtasks.filter((s) => frontendStatus(s.subtask_status) === col.id);
+            const dotColor = isLight ? col.lightDot : col.darkDot;
+            return (
+              <SubtaskColumn
+                key={col.id}
+                colId={col.id}
+                label={col.label}
+                dotColor={dotColor}
+                items={colItems}
+                isLight={isLight}
+                onApprove={handleApprove}
+                onDelete={handleDelete}
+                onFocus={handleFocusSubtask}
+                onAddClick={handleAddClick}
+              />
+            );
+          })}
+        </div>
 
-                return (
-                  <motion.div
-                    key={col.id}
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: colIndex * 0.07, duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
-                    className="flex flex-col h-auto min-h-[200px] md:h-full"
-                    style={{
-                      borderRadius: "0.875rem",
-                      background: meta.colBg,
-                      border: `1px solid ${meta.colBorder}`,
-                      borderTop: `3px solid ${meta.accent}`,
-                      overflow: "hidden",
-                    }}
-                  >
-                    {/* Column header */}
-                    <div
-                      className="flex items-center justify-between px-3 py-3 shrink-0"
-                      style={{ background: meta.headerBg, borderBottom: `1px solid ${meta.colBorder}` }}
-                    >
-                      <h2
-                        className="text-xs font-bold tracking-wide uppercase"
-                        style={{ color: meta.accentDim }}
-                      >
-                        {col.label}
-                      </h2>
-                      <span
-                        className="text-[11px] font-bold px-2 py-0.5 rounded-full tabular-nums"
-                        style={{ background: meta.badgeBg, color: meta.accentDim }}
-                      >
-                        {approvedCount}
-                      </span>
-                    </div>
+        <DragOverlay>
+          {dragActiveId
+            ? (() => {
+                const sub = subtasks.find((s) => s.subtask_id === dragActiveId);
+                return sub ? (
+                  <div style={{ transform: "rotate(1.5deg)" }}>
+                    <SubtaskCard
+                      subtask={sub}
+                      index={0}
+                      isLight={isLight}
+                      onApprove={() => {}}
+                      onDelete={() => {}}
+                      onFocus={() => {}}
+                    />
+                  </div>
+                ) : null;
+              })()
+            : null}
+        </DragOverlay>
+      </DndContext>
 
-                    {/* Droppable */}
-                    <Droppable droppableId={col.id}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          className="flex-1 p-2 transition-colors md:overflow-y-auto"
+      {/* ── Add Subtask dialog ── */}
+      <AnimatePresence>
+        {showSubtaskDialog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+            onClick={() => setShowSubtaskDialog(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 12 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 12 }}
+              transition={{ duration: 0.2 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "100%", maxWidth: 400, borderRadius: 20, padding: 24,
+                background: isLight ? "#fff" : "rgba(26,24,48,0.97)",
+                border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(124,111,247,0.22)",
+                boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
+              }}
+            >
+              {/* Title bar */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: isLight ? "#1a1830" : "rgba(255,255,255,0.92)" }}>
+                  New subtask
+                </span>
+                <button
+                  onClick={() => setShowSubtaskDialog(false)}
+                  style={{ padding: 4, borderRadius: 8, background: "none", border: "none", cursor: "pointer",
+                    color: isLight ? "rgba(83,74,183,0.50)" : "rgba(255,255,255,0.35)" }}
+                >
+                  <X style={{ width: 16, height: 16 }} />
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Title */}
+                <input
+                  autoFocus
+                  value={newSubtask.name}
+                  onChange={(e) => setNewSubtask(s => ({ ...s, name: e.target.value }))}
+                  placeholder="Subtask name"
+                  onKeyDown={(e) => e.key === "Enter" && handleSubtaskDialogSave()}
+                  style={{
+                    width: "100%", padding: "10px 14px", borderRadius: 12, fontSize: 14,
+                    background: isLight ? "rgba(83,74,183,0.04)" : "rgba(255,255,255,0.06)",
+                    border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(255,255,255,0.09)",
+                    color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)",
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                />
+
+                {/* Energy */}
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em",
+                    color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.30)", marginBottom: 8 }}>
+                    Energy level
+                  </p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["High", "Medium", "Low"] as const).map(e => {
+                      const isSelected = newSubtask.energy === e;
+                      const selBg = e === "High"
+                        ? "rgba(124,111,247,0.20)"
+                        : e === "Medium"
+                        ? "rgba(239,159,39,0.18)"
+                        : "rgba(29,158,117,0.15)";
+                      const selBorder = e === "High"
+                        ? "1px solid rgba(124,111,247,0.45)"
+                        : e === "Medium"
+                        ? "1px solid rgba(239,159,39,0.40)"
+                        : "1px solid rgba(29,158,117,0.35)";
+                      const selColor = e === "High"
+                        ? "#a89cf7"
+                        : e === "Medium"
+                        ? "#EF9F27"
+                        : "#5DCAA5";
+                      return (
+                        <button
+                          key={e}
+                          onClick={() => setNewSubtask(s => ({ ...s, energy: e }))}
                           style={{
-                            background: snapshot.isDraggingOver
-                              ? `${meta.accent}10`
-                              : "transparent",
-                            outline: snapshot.isDraggingOver
-                              ? `2px solid ${meta.accent}30`
-                              : "none",
-                            outlineOffset: "-2px",
-                            borderRadius: "0 0 0.75rem 0.75rem",
+                            flex: 1, padding: "8px", borderRadius: 12, fontSize: 12, fontWeight: 500,
+                            cursor: "pointer", transition: "all 0.12s",
+                            background: isSelected ? selBg : (isLight ? "rgba(83,74,183,0.04)" : "rgba(255,255,255,0.04)"),
+                            border: isSelected ? selBorder : (isLight ? "1px solid rgba(83,74,183,0.12)" : "1px solid rgba(255,255,255,0.08)"),
+                            color: isSelected ? selColor : (isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.38)"),
                           }}
                         >
-                          {colSubtasks.map((st, idx) => (
-                            <SubtaskCard
-                              key={st.subtask_id}
-                              subtask={st}
-                              index={idx}
-                              colId={col.id}
-                              onApprove={handleApprove}
-                              onDelete={handleDelete}
-                            />
-                          ))}
-                          {provided.placeholder}
-
-                          {/* Empty state */}
-                          {colSubtasks.length === 0 && !snapshot.isDraggingOver && (
-                            <motion.div
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              transition={{ delay: 0.3 }}
-                              className="flex flex-col items-center justify-center py-8 text-center"
-                            >
-                              {col.id === "done" ? (
-                                <>
-                                  <motion.div
-                                    animate={prefersReducedMotion ? {} : { y: [0, -4, 0] }}
-                                    transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-                                  >
-                                    <Trophy className="w-7 h-7 mb-2" style={{ color: `${meta.accent}50` }} />
-                                  </motion.div>
-                                  <p className="text-[10px] font-medium" style={{ color: `${meta.accent}60` }}>
-                                    Completions will appear here 🏆
-                                  </p>
-                                </>
-                              ) : col.id === "doing" ? (
-                                <>
-                                  <div
-                                    className="relative w-8 h-8 rounded-lg mb-2 flex items-center justify-center"
-                                    style={{ border: `1.5px dashed ${meta.accent}50` }}
-                                  >
-                                    {!prefersReducedMotion && (
-                                      <motion.div
-                                        className="absolute inset-0 rounded-lg"
-                                        animate={{ boxShadow: [`0 0 0 0 ${meta.accent}40`, `0 0 0 6px ${meta.accent}00`] }}
-                                        transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
-                                      />
-                                    )}
-                                  </div>
-                                  <p className="text-[10px] font-medium" style={{ color: `${meta.accent}60` }}>
-                                    Drag a task here 🎯
-                                  </p>
-                                </>
-                              ) : (
-                                <>
-                                  <div
-                                    className="w-7 h-7 rounded-lg mb-2"
-                                    style={{ border: `1.5px dashed ${meta.accent}40` }}
-                                  />
-                                  <p className="text-[10px] font-medium" style={{ color: `${meta.accent}50` }}>
-                                    {col.id === "backlog" ? "No subtasks yet" : "Nothing queued"}
-                                  </p>
-                                </>
-                              )}
-                            </motion.div>
-                          )}
-                        </div>
-                      )}
-                    </Droppable>
-
-                    {/* Add subtask */}
-                    <div className="p-2 shrink-0" style={{ borderTop: `1px solid ${meta.colBorder}` }}>
-                      {addingIn === col.id ? (
-                        <div className="flex flex-col gap-2">
-                          <input
-                            autoFocus
-                            value={newSubtaskName}
-                            onChange={(e) => setNewSubtaskName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleCreateSubtask(col.id);
-                              if (e.key === "Escape") { setAddingIn(null); setNewSubtaskName(""); }
-                            }}
-                            placeholder="Subtask name…"
-                            className="text-xs rounded-lg px-3 py-2 outline-none text-foreground placeholder:text-muted-foreground/40 w-full"
-                            style={{
-                              background: "hsl(var(--muted) / 0.5)",
-                              border: `1px solid ${meta.accent}55`,
-                            }}
-                          />
-                          <div className="flex items-center gap-2">
-                            <div className="flex gap-1 flex-1">
-                              <button
-                                onClick={() => setNewSubtaskEnergy("Low")}
-                                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-semibold transition-colors ${newSubtaskEnergy === "Low" ? "bg-blue-500/20 text-blue-400" : "text-muted-foreground hover:text-foreground"}`}
-                              >
-                                <Leaf className="w-3 h-3" /> Low
-                              </button>
-                              <button
-                                onClick={() => setNewSubtaskEnergy("High")}
-                                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-semibold transition-colors ${newSubtaskEnergy === "High" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"}`}
-                              >
-                                <Zap className="w-3 h-3" /> High
-                              </button>
-                            </div>
-                            <button onClick={() => handleCreateSubtask(col.id)} className="p-1.5 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-colors">
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => { setAddingIn(null); setNewSubtaskName(""); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => { setAddingIn(col.id); setNewSubtaskName(""); }}
-                          className="flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded-lg w-full transition-colors duration-200"
-                          style={{ color: `${meta.accent}70` }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = `${meta.accent}10`; (e.currentTarget as HTMLElement).style.color = meta.accentDim; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = ""; (e.currentTarget as HTMLElement).style.color = `${meta.accent}70`; }}
-                        >
-                          <Plus className="w-3.5 h-3.5" /> Add subtask
+                          {e}
                         </button>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </DragDropContext>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em",
+                    color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.30)", marginBottom: 8 }}>
+                    Notes
+                  </p>
+                  <textarea
+                    value={newSubtask.notes}
+                    onChange={(e) => setNewSubtask(s => ({ ...s, notes: e.target.value }))}
+                    placeholder="Optional notes…"
+                    rows={3}
+                    style={{
+                      width: "100%", padding: "8px 14px", borderRadius: 12, fontSize: 13,
+                      background: isLight ? "rgba(83,74,183,0.04)" : "rgba(255,255,255,0.06)",
+                      border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(255,255,255,0.09)",
+                      color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)",
+                      outline: "none", resize: "none", boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => setShowSubtaskDialog(false)}
+                  style={{ padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 500,
+                    background: "none", border: "none", cursor: "pointer",
+                    color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.40)" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubtaskDialogSave}
+                  disabled={!newSubtask.name.trim()}
+                  style={{
+                    padding: "8px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+                    background: "#7c6ff7", color: "#fff", border: "none", cursor: "pointer",
+                    opacity: newSubtask.name.trim() ? 1 : 0.4,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  Add subtask
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 };

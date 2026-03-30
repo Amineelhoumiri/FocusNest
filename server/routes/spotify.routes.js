@@ -1,5 +1,6 @@
 const express = require("express");
 const auth = require("../middleware/auth");
+const isAdmin = require("../middleware/isAdmin");
 const {
     getAuthUrl,
     handleCallback,
@@ -8,29 +9,33 @@ const {
     getPlaylists,
     playPlaylist,
     disconnect,
+    getToken,
+    getCurated,
+    addCurated,
+    removeCurated,
 } = require("../controllers/spotify.controller");
 
 const router = express.Router();
 
-// Generate OAuth URL (user must be logged in)
-router.get("/auth", auth, getAuthUrl);
+// OAuth
+router.get("/auth",      auth, getAuthUrl);
+router.get("/callback",       handleCallback);
 
-// Spotify redirects here after user approves — no auth middleware
-router.get("/callback", handleCallback);
-
-// Check connection status + display name
-router.get("/status", auth, getStatus);
-
-// Current playing track
-router.get("/now-playing", auth, getNowPlaying);
-
-// User's playlists
-router.get("/playlists", auth, getPlaylists);
-
-// Start playback of a playlist URI
-router.post("/play", auth, playPlaylist);
-
-// Revoke and delete stored tokens
+// Status + connection
+router.get("/status",    auth, getStatus);
 router.delete("/disconnect", auth, disconnect);
+
+// Playback
+router.get("/now-playing", auth, getNowPlaying);
+router.get("/playlists",   auth, getPlaylists);
+router.post("/play",       auth, playPlaylist);
+
+// Web Playback SDK token
+router.get("/token", auth, getToken);
+
+// Curated playlists (read: any user; write: admin only)
+router.get("/curated",        auth,          getCurated);
+router.post("/curated",       auth, isAdmin, addCurated);
+router.delete("/curated/:id", auth, isAdmin, removeCurated);
 
 module.exports = router;

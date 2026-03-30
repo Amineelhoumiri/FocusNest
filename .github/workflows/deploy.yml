@@ -1,18 +1,23 @@
-# Deploy to AWS: ECR push + ECS rolling update (OIDC — no long-lived AWS keys in GitHub)
+# Deploy to AWS: ECR push + App Runner deployment (OIDC — no long-lived AWS keys in GitHub)
 #
-# Prerequisites (AWS console / IaC):
+# Prerequisites (AWS):
 #   - ECR repository (e.g. focusnest)
-#   - ECS cluster + service + task definition (container port 3000, env/secrets from Secrets Manager)
-#   - IAM role for GitHub OIDC: trust policy for token.actions.githubusercontent.com, allow ecr:* push + ecs:UpdateService
+#   - App Runner service using that ECR image (port 3000), VPC connector to reach private RDS
+#   - IAM role for GitHub OIDC: trust token.actions.githubusercontent.com; allow ECR push +
+#       apprunner:StartDeployment, apprunner:DescribeService, apprunner:ListOperations
+#     (and ecr:GetAuthorizationToken, ecr:BatchCheckLayerAvailability, ecr:CompleteLayerUpload,
+#      ecr:InitiateLayerUpload, ecr:PutImage, ecr:UploadLayerPart, ecr:BatchGetImage on the repo)
 #
-# GitHub repository secrets (example names):
-#   AWS_ROLE_ARN          — IAM role ARN for OIDC
-#   AWS_REGION            — e.g. eu-west-2
-#   ECR_REPOSITORY        — repo name
-#   ECS_CLUSTER           — cluster name
-#   ECS_SERVICE           — service name
+# GitHub repository secrets:
+#   AWS_ROLE_ARN              — IAM role ARN for OIDC
+#   AWS_REGION                — e.g. eu-west-2
+#   ECR_REPOSITORY            — repo name (no registry prefix)
 # Optional:
-#   ECS_TASK_DEFINITION   — family name if you use aws ecs register-task-definition in a custom script
+#   APPRUNNER_SERVICE_ARN     — full ARN of the App Runner service; if unset, only ECR push runs
+#                               (use App Runner automatic deployments on :latest instead)
+#
+# GitHub repository variables:
+#   PUBLIC_APP_URL            — public https origin for Vite build (same as App Runner URL or custom domain)
 
 name: Deploy
 
@@ -28,7 +33,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Push to ECR and redeploy ECS
+    name: Push to ECR and start App Runner deployment
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,10 +65,14 @@ jobs:
           build-args: |
             VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
 
-      - name: Force new ECS deployment
+      - name: Start App Runner deployment
+        env:
+          SERVICE_ARN: ${{ secrets.APPRUNNER_SERVICE_ARN }}
         run: |
-          aws ecs update-service \
-            --cluster "${{ secrets.ECS_CLUSTER }}" \
-            --service "${{ secrets.ECS_SERVICE }}" \
-            --force-new-deployment \
+          if [ -z "${SERVICE_ARN}" ]; then
+            echo "::notice::APPRUNNER_SERVICE_ARN not set — image pushed to ECR only. Either add the secret or turn on automatic deployment for :latest in the App Runner console."
+            exit 0
+          fi
+          aws apprunner start-deployment \
+            --service-arn "${SERVICE_ARN}" \
             --region "${{ secrets.AWS_REGION }}"

@@ -208,7 +208,7 @@ const Profile = () => {
                             </label>
                         </div>
                         <div>
-                            <h1 className="text-3xl font-bold text-foreground">{user.full_name}</h1>
+                            <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">{user.full_name}</h1>
                             <p className="text-muted-foreground flex items-center gap-2 mt-1">
                                 <Mail className="w-4 h-4" /> {user.email}
                             </p>
@@ -220,13 +220,25 @@ const Profile = () => {
                         </div>
                     </div>
 
-                    <Button
+                    <motion.button
+                        whileHover={{ scale: 1.03, boxShadow: "0 8px 28px rgba(124,58,237,0.45)" }}
+                        whileTap={{ scale: 0.97 }}
                         onClick={handleSave}
                         disabled={isSaving}
-                        className="rounded-xl shadow-md min-w-[120px] bg-primary text-primary-foreground hover:bg-primary/90 border-0 shadow-primary/20 transition-shadow hover:shadow-primary/40"
+                        className="relative overflow-hidden flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white min-w-[130px] justify-center disabled:opacity-60 transition-all"
+                        style={{
+                            background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
+                            boxShadow: "0 4px 16px rgba(124,58,237,0.35)",
+                        }}
                     >
-                        {isSaving ? "Saving..." : <><Save className="w-4 h-4 mr-2" /> Save Changes</>}
-                    </Button>
+                        <motion.span
+                            className="absolute inset-0 pointer-events-none"
+                            style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
+                            animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+                            transition={{ duration: 2.5, repeat: Infinity, ease: "linear", repeatDelay: 1.5 }}
+                        />
+                        {isSaving ? "Saving..." : <><Save className="w-4 h-4" /> Save Changes</>}
+                    </motion.button>
                 </div>
 
                 {/* Content Section */}
@@ -456,7 +468,7 @@ const Profile = () => {
                             exit={{ scale: 0.95, opacity: 0, y: 20 }}
                             transition={{ duration: 0.2 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-card border border-red-500/20 shadow-2xl p-6 rounded-3xl w-full max-w-md"
+                            className="glass-card border border-red-500/20 shadow-2xl p-6 rounded-3xl w-full max-w-md"
                         >
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="text-xl font-bold text-red-500 flex items-center gap-2">
@@ -507,7 +519,7 @@ const Profile = () => {
                             exit={{ scale: 0.95, opacity: 0, y: 20 }}
                             transition={{ duration: 0.2 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-card border border-border/50 shadow-2xl p-6 rounded-3xl w-full max-w-md"
+                            className="glass-card border border-border/30 shadow-2xl p-6 rounded-3xl w-full max-w-md"
                         >
                             <div className="flex items-center justify-between mb-5">
                                 <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
@@ -554,13 +566,25 @@ const Profile = () => {
                                 </div>
                             </div>
 
-                            <Button
+                            <motion.button
+                                whileHover={{ scale: 1.01, boxShadow: "0 8px 28px rgba(124,58,237,0.45)" }}
+                                whileTap={{ scale: 0.98 }}
                                 onClick={handleChangePassword}
                                 disabled={isChangingPassword || !passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
-                                className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold shadow-md border-0"
+                                className="relative overflow-hidden w-full h-12 rounded-xl font-semibold text-sm text-white disabled:opacity-40 transition-all"
+                                style={{
+                                    background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
+                                    boxShadow: "0 4px 16px rgba(124,58,237,0.3)",
+                                }}
                             >
+                                <motion.span
+                                    className="absolute inset-0 pointer-events-none"
+                                    style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
+                                    animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+                                    transition={{ duration: 2.5, repeat: Infinity, ease: "linear", repeatDelay: 1.5 }}
+                                />
                                 {isChangingPassword ? "Updating..." : "Update Password"}
-                            </Button>
+                            </motion.button>
                         </motion.div>
                     </motion.div>
                 )}

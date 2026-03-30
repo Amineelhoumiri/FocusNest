@@ -136,7 +136,7 @@ const SettingsPage = () => {
 
         <div className="flex items-center gap-3">
           <Settings2 className="w-6 h-6 text-foreground" />
-          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">Settings</h1>
         </div>
 
         {/* ── Appearance ── */}

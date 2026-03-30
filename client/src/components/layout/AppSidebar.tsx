@@ -1,13 +1,17 @@
 import {
-  LayoutDashboard, CheckSquare, Timer, MessageCircle, Music,
-  Settings as SettingsIcon, Crown, ShieldAlert, Flame,
-} from "lucide-react";
+  IconLayoutDashboard,
+  IconChecklist,
+  IconClock,
+  IconMessageCircle,
+  IconMusic,
+  IconShieldExclamation,
+} from "@tabler/icons-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useFocusScore } from "@/context/FocusScoreContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useState } from "react";
 
 // ─── Nav Groups ───────────────────────────────────────────────────────────────
 
@@ -15,204 +19,325 @@ const NAV_GROUPS = [
   {
     label: null,
     items: [
-      { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-      { to: "/tasks",     icon: CheckSquare,     label: "Tasks"     },
-      { to: "/sessions",  icon: Timer,           label: "Sessions"  },
+      { to: "/dashboard", icon: IconLayoutDashboard, label: "Dashboard" },
+      { to: "/tasks",     icon: IconChecklist,       label: "Tasks"     },
+      { to: "/sessions",  icon: IconClock,            label: "Sessions"  },
     ],
   },
   {
     label: "tools",
     items: [
-      { to: "/chat",    icon: MessageCircle, label: "Finch", ai: true },
-      { to: "/spotify", icon: Music,         label: "Spotify"         },
-      { to: "/pricing", icon: Crown,         label: "Plans"           },
-    ],
-  },
-  {
-    label: "account",
-    items: [
-      { to: "/settings", icon: SettingsIcon, label: "Settings" },
+      { to: "/chat",    icon: IconMessageCircle, label: "Finch", ai: true },
+      { to: "/spotify", icon: IconMusic,         label: "Music"           },
     ],
   },
 ];
 
-// ─── Ember Ring — focus score ─────────────────────────────────────────────────
+// ─── Nav Item ─────────────────────────────────────────────────────────────────
 
-const EmberRing = ({ score, collapsed }: { score: number; collapsed: boolean }) => {
-  const size = 34;
-  const stroke = 2;
-  const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const progress = Math.min((score % 500) / 500, 1);
-  const dash = circ * progress;
-  const prefersReducedMotion = useReducedMotion();
+interface NavItemProps {
+  to: string;
+  icon: React.ElementType;
+  label: string;
+  ai?: boolean;
+  active: boolean;
+  dark: boolean;
+}
+
+const NavItem = ({ to, icon: Icon, label, active, dark }: NavItemProps) => {
+  const [hovered, setHovered] = useState(false);
+
+  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.65)";
+  const activeColor = dark ? "#ffffff" : "#534AB7";
+  const hoverBg = dark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.06)";
+  const activeBg = dark ? "rgba(124,111,247,0.18)" : "rgba(83,74,183,0.13)";
+
+  const itemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "7px 8px",
+    borderRadius: "8px",
+    fontSize: "13px",
+    cursor: "pointer",
+    transition: "background 0.12s",
+    color: active ? activeColor : baseColor,
+    background: active ? activeBg : hovered ? hoverBg : "transparent",
+    fontWeight: active ? 500 : undefined,
+    textDecoration: "none",
+  };
 
   return (
-    <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
-        {!prefersReducedMotion && (
-          <motion.div
-            className="absolute inset-0 rounded-full pointer-events-none"
-            animate={{ boxShadow: ["0 0 0 0 rgba(124,58,237,0.35)", "0 0 0 5px rgba(124,58,237,0)", "0 0 0 0 rgba(124,58,237,0)"] }}
-            transition={{ duration: 2.8, repeat: Infinity, ease: "easeOut" }}
-          />
-        )}
-        <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="hsl(var(--primary) / 0.1)" strokeWidth={stroke} />
-          <circle
-            cx={size/2} cy={size/2} r={r}
-            fill="none"
-            stroke="hsl(var(--primary) / 0.75)"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={`${dash} ${circ}`}
-            style={{ transition: "stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)" }}
-          />
+    <NavLink
+      to={to}
+      activeClassName=""
+      style={itemStyle}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {label === "Finch" ? (
+        <svg width="16" height="16" viewBox="0 0 36 36" fill="none"
+             style={{ width: 16, height: 16, flexShrink: 0 }}>
+          <path d="M18 6C18 6 26 10 27 17C28 22 24 27 18 28C12 27 8 22 9 17C10 10 18 6 18 6Z"
+            fill="currentColor" opacity="0.9" />
+          <path d="M18 6C18 6 26 10 27 17L18 17Z"
+            fill="currentColor" opacity="0.6" />
+          <path d="M27 10C27 10 32 9 33 13C31 13 29 12 27 10Z"
+            fill="currentColor" opacity="0.7" />
+          <circle cx="22" cy="12" r="2" fill="white" />
+          <circle cx="22.7" cy="11.7" r="0.75" fill="rgba(0,0,0,0.5)" />
         </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-[8px] font-medium text-primary/70 leading-none tracking-tight">
-            {score > 999 ? "∞" : score}
-          </span>
-        </div>
+      ) : (
+        <Icon
+          size={15}
+          stroke={1.4}
+          style={{ flexShrink: 0 }}
+        />
+      )}
+      <span style={{ whiteSpace: "nowrap" }}>{label}</span>
+    </NavLink>
+  );
+};
+
+// ─── Admin Nav Item ────────────────────────────────────────────────────────────
+
+const AdminNavItem = ({ active, dark }: { active: boolean; dark: boolean }) => {
+  const [hovered, setHovered] = useState(false);
+
+  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.65)";
+  const activeColor = dark ? "#ffffff" : "#534AB7";
+  const hoverBg = dark ? "rgba(255,255,255,0.05)" : "rgba(83,74,183,0.06)";
+  const activeBg = dark ? "rgba(124,111,247,0.18)" : "rgba(83,74,183,0.13)";
+
+  const itemStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "7px 8px",
+    borderRadius: "8px",
+    fontSize: "13px",
+    cursor: "pointer",
+    transition: "background 0.12s",
+    color: active ? activeColor : baseColor,
+    background: active ? activeBg : hovered ? hoverBg : "transparent",
+    fontWeight: active ? 500 : undefined,
+    textDecoration: "none",
+  };
+
+  return (
+    <NavLink
+      to="/admin"
+      activeClassName=""
+      style={itemStyle}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <IconShieldExclamation size={15} stroke={1.4} style={{ flexShrink: 0 }} />
+      <span style={{ whiteSpace: "nowrap" }}>Admin</span>
+    </NavLink>
+  );
+};
+
+// ─── Focus Score Widget ────────────────────────────────────────────────────────
+
+const FocusScoreWidget = ({
+  score,
+  streak,
+  dark,
+}: {
+  score: number;
+  streak: number;
+  dark: boolean;
+}) => {
+  const containerStyle: React.CSSProperties = {
+    borderRadius: "10px",
+    padding: "10px 10px",
+    marginBottom: "8px",
+    background: dark ? "rgba(124,111,247,0.08)" : "rgba(83,74,183,0.08)",
+    border: dark
+      ? "0.5px solid rgba(124,111,247,0.15)"
+      : "0.5px solid rgba(83,74,183,0.15)",
+  };
+
+  const labelColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.65)";
+  const subtitleColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.65)";
+
+  const subtitle =
+    score < 500
+      ? `Next: ${500 - (score % 500)} pts`
+      : streak > 0
+      ? `${streak} day streak`
+      : "Keep going!";
+
+  return (
+    <div style={containerStyle}>
+      <div
+        style={{
+          fontSize: "10px",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: labelColor,
+          marginBottom: "2px",
+        }}
+      >
+        FOCUS SCORE
       </div>
-      <AnimatePresence>
-        {!collapsed && (
-          <motion.div
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -4 }}
-            transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-            className="flex flex-col leading-tight"
-          >
-            <span className="text-[10px] font-medium text-primary/80 tracking-wide">Focus Score</span>
-            <span className="text-[11px] text-muted-foreground/60">{score} pts</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div
+        style={{
+          fontSize: "18px",
+          fontWeight: 600,
+          color: "#7c6ff7",
+          lineHeight: 1.2,
+        }}
+      >
+        {score} pts
+      </div>
+      <div
+        style={{
+          fontSize: "11px",
+          color: subtitleColor,
+          marginTop: "2px",
+        }}
+      >
+        {subtitle}
+      </div>
     </div>
   );
 };
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
-const AppSidebar = () => {
+const AppSidebar = ({ overlay = false }: { overlay?: boolean }) => {
   const location = useLocation();
   const { user } = useAuth();
   const { score, streak } = useFocusScore();
   const { theme } = useTheme();
+
+  const dark = theme === "dark";
 
   const isActive = (to: string) => {
     if (to === "/tasks") return location.pathname.startsWith("/tasks");
     return location.pathname === to;
   };
 
+  const sidebarStyle: React.CSSProperties = {
+    width: "158px",
+    height: "calc(100vh - 3rem)",
+    position: "sticky",
+    top: "3rem",
+    display: "flex",
+    flexDirection: "column",
+    padding: "16px 10px",
+    gap: "2px",
+    flexShrink: 0,
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
+    background: dark
+      ? "rgba(13,11,24,0.72)"
+      : "rgba(240,235,255,0.78)",
+    borderRight: overlay
+      ? "none"
+      : dark
+      ? "0.5px solid rgba(255,255,255,0.06)"
+      : "0.5px solid rgba(83,74,183,0.12)",
+    boxShadow: overlay ? "8px 0 32px rgba(0,0,0,0.18)" : "none",
+    overflowY: "auto",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: "10px",
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
+    padding: "8px 8px 4px",
+    marginTop: "6px",
+    color: dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.55)",
+  };
+
+  const logoTextStyle: React.CSSProperties = {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: dark ? "rgba(255,255,255,0.92)" : "#1a1830",
+  };
+
   return (
-    <aside
-      className="hidden md:flex w-[210px] h-[calc(100vh-3.75rem)] flex-col overflow-hidden shrink-0"
-      style={{
-        borderRight: "0.5px solid hsl(var(--border) / 0.5)",
-        background: "hsl(var(--sidebar-background) / 0.6)",
-        backdropFilter: "blur(16px)",
-      }}
-    >
+    <aside style={sidebarStyle}>
+      {/* ── Logo area ── */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "14px",
+          padding: "0 2px",
+        }}
+      >
+        <div
+          style={{
+            width: "26px",
+            height: "26px",
+            borderRadius: "7px",
+            background: "#7c6ff7",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              color: "#ffffff",
+              fontWeight: 700,
+              fontSize: "13px",
+              lineHeight: 1,
+            }}
+          >
+            F
+          </span>
+        </div>
+        <span style={logoTextStyle}>FocusNest</span>
+      </div>
+
       {/* ── Navigation ── */}
-      <nav className="flex flex-col flex-1 overflow-y-auto pt-3 pb-4" style={{ gap: "2px" }}>
+      <nav style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
         {NAV_GROUPS.map((group, gi) => (
-          <div key={gi} className={gi > 0 ? "mt-5" : ""}>
-            {group.label && (
-              <p className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground/50 font-medium mb-2 px-5">
-                {group.label}
-              </p>
+          <div key={gi}>
+            {gi > 0 && (
+              <div style={{
+                height: "0.5px",
+                margin: "6px 8px 4px",
+                background: dark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.10)",
+              }} />
             )}
-
-            {group.items.map((link) => {
-              const active = isActive(link.to);
-              return (
-                <NavLink
-                  key={link.to}
-                  to={link.to}
-                  activeClassName=""
-                  className={`
-                    relative flex items-center gap-3 mx-2 px-3 rounded-xl text-sm
-                    transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]
-                    min-h-[40px] overflow-hidden
-                    ${active
-                      ? "text-white"
-                      : "text-foreground/65 hover:text-foreground/85"
-                    }
-                  `}
-                  style={active ? {
-                    background: "hsl(var(--primary))",
-                    boxShadow: "0 2px 12px hsl(var(--primary) / 0.35)",
-                  } : {}}
-                  onMouseEnter={(e) => {
-                    if (!active) (e.currentTarget as HTMLElement).style.background = theme === "dark" ? "hsl(var(--primary) / 0.06)" : "rgba(124,58,237,0.06)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!active) (e.currentTarget as HTMLElement).style.background = "";
-                  }}
-                >
-                  {active && (
-                    <motion.div
-                      layoutId="active-pill"
-                      className="absolute inset-0 rounded-xl"
-                      style={{ background: "hsl(var(--primary))" }}
-                      transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-                    />
-                  )}
-
-                  <link.icon
-                    style={{ width: "16px", height: "16px", flexShrink: 0, position: "relative", zIndex: 1 }}
-                    className={
-                      active
-                        ? "text-white/90"
-                        : link.ai
-                        ? "text-ai-purple/60"
-                        : "text-foreground/50"
-                    }
-                  />
-
-                  <span style={{ position: "relative", zIndex: 1 }} className={`whitespace-nowrap font-normal tracking-wide text-[13px] ${link.ai && !active ? "text-ai-purple/70" : ""}`}>
-                    {link.label}
-                  </span>
-                </NavLink>
-              );
-            })}
+            {group.label && (
+              <div style={labelStyle}>{group.label}</div>
+            )}
+            {group.items.map((link) => (
+              <NavItem
+                key={link.to}
+                to={link.to}
+                icon={link.icon}
+                label={link.label}
+                ai={link.ai}
+                active={isActive(link.to)}
+                dark={dark}
+              />
+            ))}
           </div>
         ))}
 
         {/* Admin */}
         {user?.is_admin && (
-          <div className="mt-3">
-            <NavLink
-              to="/admin"
-              activeClassName=""
-              className={`relative flex items-center gap-3 mx-2 px-3 rounded-xl text-[13px] transition-all duration-300 min-h-[40px]
-                ${location.pathname === "/admin"
-                  ? "text-primary/70 bg-primary/5"
-                  : "text-primary/35 hover:text-primary/60"
-                }`}
-            >
-              <ShieldAlert style={{ width: "16px", height: "16px", flexShrink: 0 }} />
-              <span className="whitespace-nowrap">Admin</span>
-            </NavLink>
-          </div>
+          <AdminNavItem
+            active={location.pathname === "/admin"}
+            dark={dark}
+          />
         )}
       </nav>
 
-      {/* ── Footer — score + streak ── */}
-      <div
-        className="px-3 py-4 flex flex-col gap-3"
-        style={{ borderTop: "0.5px solid hsl(var(--border) / 0.3)" }}
-      >
-        <EmberRing score={score} collapsed={false} />
-
-        {streak > 0 && (
-          <div className="flex items-center gap-1.5 text-[11px] text-foreground/50">
-            <Flame className="w-3 h-3 text-primary/60" />
-            <span>{streak} day{streak !== 1 ? "s" : ""}</span>
-          </div>
-        )}
+      {/* ── Focus Score widget (pushed to bottom) ── */}
+      <div style={{ marginTop: "auto" }}>
+        <FocusScoreWidget score={score} streak={streak} dark={dark} />
       </div>
     </aside>
   );

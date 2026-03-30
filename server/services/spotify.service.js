@@ -4,8 +4,10 @@ const SCOPES = [
     "user-read-private",
     "user-read-currently-playing",
     "user-read-playback-state",
+    "user-modify-playback-state",
     "playlist-read-private",
-    // user-modify-playback-state added back once basic auth is confirmed working
+    "playlist-read-collaborative",
+    "streaming",               // Required for Web Playback SDK
 ];
 
 /**
@@ -94,6 +96,15 @@ async function playContext(accessToken, contextUri, deviceId = null) {
     await api.play(opts);
 }
 
+/**
+ * Transfer playback to a specific device (e.g. the Web Playback SDK device).
+ * This forces Spotify to recognize the device before a play command is issued.
+ */
+async function transferPlayback(accessToken, deviceId) {
+    // play: false — just make FocusNest the active device without auto-resuming
+    await createClient(accessToken).transferMyPlayback([deviceId], { play: false });
+}
+
 module.exports = {
     getAuthUrl,
     exchangeCode,
@@ -102,4 +113,5 @@ module.exports = {
     getNowPlaying,
     getUserPlaylists,
     playContext,
+    transferPlayback,
 };
