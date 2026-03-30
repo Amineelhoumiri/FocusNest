@@ -58,7 +58,7 @@ jobs:
 
       # Build locally first so Trivy can scan before anything reaches ECR
       - name: Build image (local)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
