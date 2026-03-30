@@ -137,3 +137,16 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Cursor / IDE / AI tooling
+.vscode/
+.claude/
+
+# JetBrains
+.idea/
+
+# Local scratch notes (keep untracked)
+docs/MVP_NOTES_LOCAL.md
+
+# macOS
+.DS_Store

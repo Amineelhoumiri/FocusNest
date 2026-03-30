@@ -13,7 +13,7 @@ const {
     verifyAccessToken,
 } = require("../services/token.service");
 
-// Centralizes cookie configuration so it's consistent across register and login
+// Centralises cookie configuration so it's consistent across register and login
 const setTokenCookies = (res, accessToken, refreshToken) => {
     // Access token cookie - short lived (1 hour)
     res.cookie("access_token", accessToken, {
@@ -39,10 +39,10 @@ const register = async (req, res) => {
         const { email, password, full_name, date_of_birth, address } = req.body;
 
         // Validate required fields
-        if (!email || !password || !full_name) {
+        if (!email || !password || !full_name || !date_of_birth) {
             return res.status(400).json({
                 error: "VALIDATION_ERROR",
-                message: "Email, password and full name are required.",
+                message: "Email, password, full name, and date of birth are required.",
             });
         }
 
@@ -54,7 +54,7 @@ const register = async (req, res) => {
         }
 
         // Encrypt email and check if it already exists
-        const encryptedEmail = encrypt(email.toLowerCase());
+        const encryptedEmail = await encrypt(email.toLowerCase());
 
         // Check all existing emails by decrypting and comparing
         // We store encrypted so we can't use a simple WHERE clause
@@ -62,9 +62,14 @@ const register = async (req, res) => {
             "SELECT encrypted_email FROM account"
         );
 
-        const emailExists = existingAccounts.rows.some(
-            (row) => decrypt(row.encrypted_email.toString()) === email.toLowerCase()
-        );
+        let emailExists = false;
+        for (const row of existingAccounts.rows) {
+            const decEmail = await decrypt(row.encrypted_email.toString());
+            if (decEmail === email.toLowerCase()) {
+                emailExists = true;
+                break;
+            }
+        }
 
         if (emailExists) {
             return res.status(409).json({
@@ -86,7 +91,7 @@ const register = async (req, res) => {
        RETURNING user_id, full_name, is_admin`,
             [
                 full_name,
-                date_of_birth || null,
+                date_of_birth,
                 address || null,
                 true,  // core consent is required to register
                 false, // AI consent defaults to false
@@ -154,9 +159,14 @@ const login = async (req, res) => {
        JOIN users u ON a.user_id = u.user_id`
         );
 
-        const account = allAccounts.rows.find(
-            (row) => decrypt(row.encrypted_email.toString()) === email.toLowerCase()
-        );
+        let account;
+        for (const row of allAccounts.rows) {
+            const decEmail = await decrypt(row.encrypted_email.toString());
+            if (decEmail === email.toLowerCase()) {
+                account = row;
+                break;
+            }
+        }
 
         if (!account) {
             return res.status(401).json({
