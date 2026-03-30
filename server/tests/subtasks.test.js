@@ -5,7 +5,9 @@ const express = require("express");
 const { TEST_USER } = require("./helpers/mockAuth");
 
 jest.mock("../middleware/auth", () => require("./helpers/mockAuth").mockAuthMiddleware);
-jest.mock("../config/db");
+jest.mock("../config/db", () => ({
+  query: jest.fn(),
+}));
 jest.mock("../services/encryption.service", () => ({
   encrypt: jest.fn(),
   decrypt: jest.fn(),
@@ -27,8 +29,10 @@ app.use(express.json());
 app.use("/api/tasks/:task_id/subtasks", require("../routes/subtasks.routes"));
 
 beforeEach(() => {
+  pool.query.mockReset();
   encrypt.mockImplementation(async (v) => Buffer.from(v));
   decrypt.mockImplementation(async (v) => v.toString());
+  generateTaskBreakdown.mockReset();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
