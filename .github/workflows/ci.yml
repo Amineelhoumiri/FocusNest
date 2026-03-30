@@ -180,17 +180,33 @@ jobs:
           format: table
           exit-code: "0"
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          scanners: vuln
 
-      # Blocking: fail only on HIGH/CRITICAL with an available fix (unfixed = nothing we can do)
+      # Blocking: fail only on actionable HIGH/CRITICAL vuln findings.
+      # Use table output so the failing vulnerabilities are visible in the CI log.
       - name: Trivy — gate HIGH and CRITICAL
         uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: focusnest:ci
-          format: sarif
-          output: trivy-results.sarif
+          format: table
           exit-code: "1"
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          scanners: vuln
+
+      # Non-blocking: upload SARIF for GitHub Security tab (best-effort)
+      - name: Trivy — SARIF (upload)
+        uses: aquasecurity/trivy-action@v0.35.0
+        if: always()
+        with:
+          image-ref: focusnest:ci
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          scanners: vuln
+          limit-severities-for-sarif: true
 
       - name: Upload Trivy SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
