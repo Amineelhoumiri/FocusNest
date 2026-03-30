@@ -1,7 +1,9 @@
 # FocusNest — multi-stage: build Vite client + production Node server (serves API + static SPA)
 
 # ─── Build client ─────────────────────────────────────────────────────────────
-FROM node:22-alpine AS client-build
+# Pinned digest ensures base image never changes unexpectedly.
+# Dependabot (docker ecosystem) will send PRs when a newer digest is available.
+FROM node:22-alpine@sha256:4d64b49e6c891c8fc821007cb1cdc6c0db7773110ac2c34bf2e6960adef62ed3 AS client-build
 WORKDIR /app/client
 
 COPY client/package.json client/package-lock.json ./
@@ -13,7 +15,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:22-alpine@sha256:4d64b49e6c891c8fc821007cb1cdc6c0db7773110ac2c34bf2e6960adef62ed3 AS runtime
 
 # Upgrade all base OS packages so fixable CVEs (e.g. musl CVE-2025-26519) are patched
 RUN apk upgrade --no-cache \
