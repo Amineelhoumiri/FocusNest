@@ -1,0 +1,19 @@
+# .trivyignore — CVEs accepted as non-exploitable in this context
+#
+# Add CVEs here ONLY when:
+#   1. The vulnerability is confirmed non-exploitable in our usage, AND
+#   2. The team has reviewed and accepted the risk
+#
+# Format: one CVE ID per line. Comments start with #.
+# Review this file quarterly and remove entries when fixes become available.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# CVE-2025-64756 — glob CLI command injection (HIGH)
+# Affects: glob 10.3.7–11.0.3 bundled inside npm CLI
+# Why accepted: FocusNest does NOT use glob's -c/--cmd CLI flag. npm uses glob as a
+#   library, not its CLI. Primary mitigation: Dockerfile removes npm from the runtime
+#   image. This line is a fallback if a transitive dependency still reports the CVE.
+# Upstream: https://github.com/npm/cli/issues/8741
+# Review date: 2026-03-30
+# ──────────────────────────────────────────────────────────────────────────────
+CVE-2025-64756
