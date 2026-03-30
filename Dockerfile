@@ -1,7 +1,7 @@
 # FocusNest — multi-stage: build Vite client + production Node server (serves API + static SPA)
 
 # ─── Build client ─────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS client-build
+FROM node:22-alpine AS client-build
 WORKDIR /app/client
 
 COPY client/package.json client/package-lock.json ./
@@ -13,10 +13,9 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-alpine AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends dumb-init \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache dumb-init
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -31,7 +30,7 @@ COPY server/ ./
 
 COPY --from=client-build /app/client/dist /app/client/dist
 
-RUN groupadd -r focusnest && useradd -r -g focusnest focusnest \
+RUN addgroup -S focusnest && adduser -S -G focusnest focusnest \
     && chown -R focusnest:focusnest /app
 
 USER focusnest
