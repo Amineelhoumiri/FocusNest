@@ -65,9 +65,11 @@ jobs:
           pad = "=" * (-len(parts[1]) % 4)
           raw = parts[1] + pad
           data = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
+          aud = data.get("aud")
           out = {
               "sub": data.get("sub"),
-              "aud": data.get("aud"),
+              "aud": aud,
+              "aud_type": type(aud).__name__,
               "iss": data.get("iss"),
               "repository": data.get("repository"),
               "ref": data.get("ref"),
@@ -81,6 +83,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Login to Amazon ECR
         id: ecr
