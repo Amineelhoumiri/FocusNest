@@ -35,6 +35,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 COPY server/ ./
+COPY docs/ /app/docs/
 
 COPY --from=client-build /app/client/dist /app/client/dist
 
