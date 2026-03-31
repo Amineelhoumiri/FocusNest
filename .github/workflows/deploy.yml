@@ -36,7 +36,7 @@ jobs:
     name: Push to ECR and start App Runner deployment
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # #region agent log — debug session bca148 (OIDC claims + raw STS; no JWT printed)
       - name: Debug — OIDC claims + aws sts assume-role-with-web-identity (bca148)
