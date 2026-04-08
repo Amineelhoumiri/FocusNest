@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Calendar as CalendarIcon, Trash2, Zap, Leaf, Sparkles, Check, Loader2 } from "lucide-react";
+import { X, Calendar as CalendarIcon, Trash2, Zap, Leaf, Sparkles, Check, Loader2, Plus } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -59,7 +59,7 @@ export const TaskDetailsModal = ({
 
   const fetchTaskDetails = async () => {
     try {
-      const res = await fetch(`/api/tasks/${task.id}`);
+      const res = await fetch(`/api/tasks/${task.id}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         if (data.notes) setNotes(data.notes);
@@ -71,7 +71,7 @@ export const TaskDetailsModal = ({
 
   const fetchSubtasks = async () => {
     try {
-      const res = await fetch(`/api/tasks/${task.id}/subtasks`);
+      const res = await fetch(`/api/tasks/${task.id}/subtasks`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch subtasks");
       const data = await res.json();
       setSubtasks(data);
@@ -85,6 +85,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_name: taskName }),
       });
@@ -99,6 +100,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_status: newStatus }),
       });
@@ -114,6 +116,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ energy_level: newEnergy === "high" ? "High" : "Low" }),
       });
@@ -127,6 +130,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
@@ -140,6 +144,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           due_date: date ? format(date, "yyyy-MM-dd") : null,
@@ -153,7 +158,7 @@ export const TaskDetailsModal = ({
 
   const handleDeleteTask = async () => {
     try {
-      await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+      await fetch(`/api/tasks/${task.id}`, { method: "DELETE", credentials: "include" });
       toast.success("Task deleted");
       onTaskDeleted();
       onClose();
@@ -164,20 +169,18 @@ export const TaskDetailsModal = ({
 
   const toggleSubtaskDone = async (subtask: Subtask) => {
     const isCompleted = subtask.subtask_status !== "Done";
-    // Optimistic Update
     setSubtasks(prev => prev.map(s => s.subtask_id === subtask.subtask_id ? { ...s, subtask_status: isCompleted ? "Done" : "Backlog" } : s));
     try {
-      // First try the specific requested endpoint
       const res = await fetch(`/api/subtasks/${subtask.subtask_id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ completed: isCompleted }),
       });
-
       if (!res.ok) {
-        // Fallback to old format if strictly requested endpoint doesn't exist
         await fetch(`/api/tasks/${task.id}/subtasks/${subtask.subtask_id}`, {
           method: "PATCH",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ subtask_status: isCompleted ? "Done" : "Backlog" }),
         });
@@ -185,14 +188,17 @@ export const TaskDetailsModal = ({
       onTaskUpdated();
     } catch (err) {
       toast.error("Error updating subtask");
-      fetchSubtasks(); // Revert
+      fetchSubtasks();
     }
   };
 
   const deleteSubtask = async (subtaskId: string) => {
     setSubtasks((prev) => prev.filter((s) => s.subtask_id !== subtaskId));
     try {
-      const res = await fetch(`/api/tasks/${task.id}/subtasks/${subtaskId}`, { method: "DELETE" });
+      const res = await fetch(`/api/tasks/${task.id}/subtasks/${subtaskId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
       if (!res.ok) throw new Error();
       onTaskUpdated();
     } catch {
@@ -242,6 +248,7 @@ export const TaskDetailsModal = ({
     try {
       await fetch(`/api/tasks/${task.id}/subtasks`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subtask_name: newSubtaskName, is_approved: true }),
       });
@@ -383,14 +390,22 @@ export const TaskDetailsModal = ({
               <p className="text-xs text-violet-300/80 italic bg-violet-500/5 rounded-lg px-3 py-2">{aiMessage.closing}</p>
             )}
 
-            <div className="pt-2">
+            <div className="pt-1 flex items-center gap-2 rounded-xl px-3 py-2 transition-colors" style={{ background: "hsl(var(--muted)/0.35)", border: "0.5px solid hsl(var(--border)/0.35)" }}>
               <input
                 value={newSubtaskName}
                 onChange={(e) => setNewSubtaskName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && createSubtask()}
-                placeholder="Add subtask and press Enter"
-                className="w-full text-sm bg-transparent border-none outline-none text-foreground/80 placeholder:text-muted-foreground/30 p-2 border-b border-transparent focus:border-primary/30 transition-colors font-light"
+                placeholder="Add a subtask…"
+                className="flex-1 text-sm bg-transparent outline-none text-foreground/80 placeholder:text-muted-foreground/35 font-light"
               />
+              <button
+                onClick={createSubtask}
+                disabled={!newSubtaskName.trim()}
+                className="p-1 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                title="Add subtask"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
           </div>
 

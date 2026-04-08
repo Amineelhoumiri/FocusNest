@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const { encrypt } = require("../services/encryption.service");
 
 // Helper to validate UUID format
 const isValidUUID = (uuid) => {
@@ -17,6 +18,19 @@ const startSession = async (req, res) => {
 
     if (!task_id || !isValidUUID(task_id)) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Valid task_id is required." });
+    }
+
+    const active = await pool.query(
+      `SELECT session_id, task_id FROM focus_session WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
+      [user_id]
+    );
+    if (active.rows.length > 0) {
+      return res.status(409).json({
+        error: "SESSION_ACTIVE",
+        message: "You already have an active focus session. Finish or end it before starting another.",
+        active_session_id: active.rows[0].session_id,
+        active_task_id: active.rows[0].task_id,
+      });
     }
 
     const result = await pool.query(
@@ -61,7 +75,7 @@ const endSession = async (req, res) => {
   try {
     const { user_id } = req.user;
     const { session_id } = req.params;
-    const { outcome, reflection_type } = req.body;
+    const { outcome, reflection_type, reflection_content } = req.body;
 
     if (!isValidUUID(session_id)) {
       return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid session_id format." });
@@ -84,6 +98,14 @@ const endSession = async (req, res) => {
     if (reflection_type !== undefined) {
       fields.push(`reflection_type = $${index++}`);
       values.push(reflection_type);
+    }
+
+    if (reflection_content !== undefined && reflection_content !== null) {
+      const text = typeof reflection_content === "string" ? reflection_content.trim() : "";
+      if (text.length > 0) {
+        fields.push(`reflection_content = $${index++}`);
+        values.push(await encrypt(text));
+      }
     }
 
     values.push(session_id);

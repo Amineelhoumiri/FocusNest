@@ -15,7 +15,8 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       "/api": {
         target: "http://localhost:3000",
-        changeOrigin: true,
+        // Keep Host as localhost:8080 so Better Auth sees the same origin as BETTER_AUTH_URL (Vite dev).
+        changeOrigin: false,
       },
     },
   },

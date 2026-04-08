@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 // ─── Spotify SDK types ────────────────────────────────────────────────────────
 
@@ -48,13 +49,21 @@ export interface SpotifyPlayerState {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSpotifyPlayer() {
+  const { user } = useAuth();
+  const spotifyAllowed = user?.is_consented_spotify === true;
+
   const [deviceId, setDeviceId]       = useState<string | null>(null);
   const [playerState, setPlayerState] = useState<SpotifyPlayerState | null>(null);
   const [ready, setReady]             = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
-  const playerRef  = useRef<SpotifySDKPlayer | null>(null);
-  const mountedRef = useRef(true);
+  const playerRef    = useRef<SpotifySDKPlayer | null>(null);
+  const deviceIdRef  = useRef<string | null>(null);
+  const mountedRef   = useRef(true);
+
+  useEffect(() => {
+    deviceIdRef.current = deviceId;
+  }, [deviceId]);
 
   // Fetch a fresh (auto-refreshed) access token from the backend
   const fetchToken = useCallback(async (): Promise<string> => {
@@ -65,10 +74,22 @@ export function useSpotifyPlayer() {
   }, []);
 
   useEffect(() => {
+    if (!spotifyAllowed) {
+      mountedRef.current = false;
+      playerRef.current?.disconnect();
+      playerRef.current = null;
+      deviceIdRef.current = null;
+      setDeviceId(null);
+      setPlayerState(null);
+      setReady(false);
+      setError(null);
+      return;
+    }
+
     mountedRef.current = true;
 
     const initPlayer = () => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !spotifyAllowed) return;
 
       const player = new window.Spotify.Player({
         name: "FocusNest",
@@ -85,8 +106,7 @@ export function useSpotifyPlayer() {
         setError(null);
       }) as never);
 
-      player.addListener("not_ready", (({ device_id }: { device_id: string }) => {
-        console.warn("Spotify player device went offline:", device_id);
+      player.addListener("not_ready", (() => {
         if (!mountedRef.current) return;
         setReady(false);
       }) as never);
@@ -131,31 +151,40 @@ export function useSpotifyPlayer() {
       playerRef.current?.disconnect();
       playerRef.current = null;
     };
-  }, [fetchToken]);
+  }, [fetchToken, spotifyAllowed]);
 
   // ── Controls ────────────────────────────────────────────────────────────────
 
-  const pause      = useCallback(() => playerRef.current?.pause(),            []);
-  const resume     = useCallback(() => playerRef.current?.resume(),           []);
-  const nextTrack  = useCallback(() => playerRef.current?.nextTrack(),        []);
-  const prevTrack  = useCallback(() => playerRef.current?.previousTrack(),    []);
-  const seek       = useCallback((ms: number) => playerRef.current?.seek(ms), []);
-  const setVolume  = useCallback((v: number) => playerRef.current?.setVolume(v), []);
+  const pause      = useCallback((): Promise<void> => playerRef.current?.pause()     ?? Promise.resolve(), []);
+  const resume     = useCallback((): Promise<void> => playerRef.current?.resume()    ?? Promise.resolve(), []);
+  const nextTrack  = useCallback((): Promise<void> => playerRef.current?.nextTrack() ?? Promise.resolve(), []);
+  const prevTrack  = useCallback((): Promise<void> => playerRef.current?.previousTrack() ?? Promise.resolve(), []);
+  const seek       = useCallback((ms: number): Promise<void> => playerRef.current?.seek(ms) ?? Promise.resolve(), []);
+  const setVolume  = useCallback((v: number): Promise<void> => playerRef.current?.setVolume(v) ?? Promise.resolve(), []);
 
-  // Play a playlist on this device via the backend
+  // Play a playlist via the backend. Waits briefly for the Web Playback SDK device
+  // (common right after navigating to focus mode), then falls back to Spotify’s active device.
   const playPlaylist = useCallback(async (contextUri: string) => {
-    if (!deviceId) throw new Error("Player not ready");
+    let dev = deviceIdRef.current;
+    if (!dev) {
+      for (let i = 0; i < 25; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+        dev = deviceIdRef.current;
+        if (dev) break;
+      }
+    }
+
     const res = await fetch("/api/spotify/play", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context_uri: contextUri, device_id: deviceId }),
+      body: JSON.stringify({ context_uri: contextUri, device_id: dev ?? null }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error((err as { message?: string }).message || "Playback failed");
     }
-  }, [deviceId]);
+  }, []);
 
   return { deviceId, playerState, ready, error, pause, resume, nextTrack, prevTrack, seek, setVolume, playPlaylist };
 }

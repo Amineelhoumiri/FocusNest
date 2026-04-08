@@ -6,7 +6,8 @@
     "start": "node index.js",
     "dev": "node --watch index.js",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "purge:inactive": "node scripts/purgeInactiveUsers.js"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1000.0",
@@ -24,7 +25,9 @@
     "openai": "^6.27.0",
     "pg": "^8.18.0",
     "spotify-web-api-node": "^5.0.2",
-    "uuid": "^13.0.0"
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",

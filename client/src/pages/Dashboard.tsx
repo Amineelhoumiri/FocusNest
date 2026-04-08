@@ -19,7 +19,10 @@ import {
   ListChecks,
   BarChart3,
   RefreshCw,
+  HelpCircle,
 } from "lucide-react";
+import { HowItWorksModal } from "@/components/HowItWorksModal";
+import { cn } from "@/lib/utils";
 import { useFocusScore } from "@/context/FocusScoreContext";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -305,6 +308,7 @@ const Dashboard = () => {
   >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [clock, setClock] = useState(new Date());
 
   useEffect(() => {
@@ -474,9 +478,9 @@ const Dashboard = () => {
             initial="hidden"
             animate="show"
             custom={0}
-            className="flex items-center justify-between mb-8 pt-1"
+            className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-8 pt-1"
           >
-            <div>
+            <div className="min-w-0">
               <h1 className="text-3xl font-bold tracking-tight text-foreground">
                 {greeting},{" "}
                 <span style={{ color: isLight ? "#534AB7" : "#9d91fa" }}>
@@ -491,7 +495,24 @@ const Dashboard = () => {
                 {dateStr} — your personal focus dashboard
               </p>
             </div>
+            <motion.button
+              type="button"
+              layout
+              onClick={() => setHowItWorksOpen(true)}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+              className={cn(
+                "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-semibold shadow-sm transition-colors",
+                isLight
+                  ? "border-primary/25 bg-white/90 text-primary hover:bg-primary/8"
+                  : "border-white/12 bg-white/[0.06] text-violet-200 hover:bg-white/[0.10]"
+              )}
+            >
+              <HelpCircle className="h-4 w-4 opacity-90" />
+              How FocusNest works
+            </motion.button>
           </motion.div>
+
+          <HowItWorksModal open={howItWorksOpen} onOpenChange={setHowItWorksOpen} />
 
           {/* ── Main 2-col layout ────────────────────────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5">

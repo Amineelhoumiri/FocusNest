@@ -6,6 +6,18 @@ const pool = require("../config/db");
 const getCurated = async (req, res) => {
     try {
         const { source } = req.query;
+        if (source === "spotify") {
+            const u = await pool.query(
+                `SELECT is_consented_spotify FROM users WHERE user_id = $1`,
+                [req.user.user_id]
+            );
+            if (!u.rows[0]?.is_consented_spotify) {
+                return res.status(403).json({
+                    error: "CONSENT_REQUIRED",
+                    message: "Spotify integration consent is required.",
+                });
+            }
+        }
         const params = [];
         let where = "";
         if (source === "youtube" || source === "spotify") {

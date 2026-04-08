@@ -47,15 +47,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfileLoading(true);
       fetch("/api/users/me", { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { if (data) setUser(data); })
-        .catch((err) => console.error("Profile fetch failed", err))
+        .then((data) => {
+          if (data) setUser(data);
+          else setUser(null);
+        })
+        .catch((err) => {
+          console.error("Profile fetch failed", err);
+          setUser(null);
+        })
         .finally(() => setProfileLoading(false));
     } else if (!sessionLoading) {
       setUser(null);
     }
   }, [session, sessionLoading]);
 
-  const isLoading = sessionLoading || profileLoading || (!!session?.user && !user);
+  // Do not use `!!session?.user && !user` here: if /api/users/me fails, that stays true forever
+  // and AppLayout returns null (blank screen).
+  const isLoading = sessionLoading || profileLoading;
 
   // ── Email / password login ────────────────────────────────────
   const login = async (email: string, password: string) => {

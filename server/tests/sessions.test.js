@@ -4,8 +4,12 @@ const express = require("express");
 // ── Mocks ────────────────────────────────────────────────────────────────────
 jest.mock("../middleware/auth", () => require("./helpers/mockAuth").mockAuthMiddleware);
 jest.mock("../config/db");
+jest.mock("../services/encryption.service", () => ({
+  encrypt: jest.fn(async (s) => `enc:${s}`),
+}));
 
 const pool = require("../config/db");
+const { encrypt } = require("../services/encryption.service");
 
 const VALID_SESSION_ID = "cccccccc-cccc-4ccc-aaaa-cccccccccccc";
 const VALID_TASK_ID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
@@ -18,9 +22,11 @@ app.use("/api/sessions", require("../routes/sessions.routes"));
 // ── Tests ─────────────────────────────────────────────────────────────────────
 describe("POST /api/sessions", () => {
   it("returns 201 on valid session start", async () => {
-    pool.query.mockResolvedValueOnce({
-      rows: [{ session_id: VALID_SESSION_ID, task_id: VALID_TASK_ID, is_active: true }],
-    });
+    pool.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ session_id: VALID_SESSION_ID, task_id: VALID_TASK_ID, is_active: true }],
+      });
 
     const res = await request(app)
       .post("/api/sessions")
@@ -28,6 +34,20 @@ describe("POST /api/sessions", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.is_active).toBe(true);
+  });
+
+  it("returns 409 when user already has an active session", async () => {
+    pool.query.mockResolvedValueOnce({
+      rows: [{ session_id: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb" }],
+    });
+
+    const res = await request(app)
+      .post("/api/sessions")
+      .send({ task_id: VALID_TASK_ID });
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("SESSION_ACTIVE");
+    expect(res.body.active_session_id).toBeDefined();
   });
 
   it("returns 400 when task_id is missing", async () => {
@@ -86,6 +106,19 @@ describe("PATCH /api/sessions/:session_id", () => {
       .send({ outcome: "abandoned" });
 
     expect(res.status).toBe(404);
+  });
+
+  it("stores encrypted reflection_content when provided", async () => {
+    pool.query.mockResolvedValueOnce({
+      rows: [{ session_id: VALID_SESSION_ID, is_active: false, reflection_type: "Distraction" }],
+    });
+
+    const res = await request(app)
+      .patch(`/api/sessions/${VALID_SESSION_ID}`)
+      .send({ outcome: "abandoned", reflection_type: "Distraction", reflection_content: "  Phone rang  " });
+
+    expect(res.status).toBe(200);
+    expect(encrypt).toHaveBeenCalledWith("Phone rang");
   });
 
   it("returns 400 for invalid session_id UUID", async () => {

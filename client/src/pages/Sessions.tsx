@@ -1,4 +1,4 @@
-// src/pages/Sessions.tsx — Pre-session step flow (Task → Subtask → Duration)
+// src/pages/Sessions.tsx — Pre-session step flow (Task → Subtask → 5-min micro start)
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { ChevronRight, Check, Clock, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/context/ThemeContext";
+import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,18 +26,9 @@ interface SessionSubtask {
 
 type Step = 1 | 2 | 3;
 
-interface Duration { mins: number; label: string }
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STEP_LABELS = ["Task", "Subtask", "Duration"] as const;
-
-const DURATIONS: Duration[] = [
-  { mins: 5,  label: "Micro"    },
-  { mins: 25, label: "Pomodoro" },
-  { mins: 45, label: "Deep"     },
-  { mins: 60, label: "Flow"     },
-];
+const STEP_LABELS = ["Task", "Subtask", "Start"] as const;
 
 // ─── StepTrack ───────────────────────────────────────────────────────────────
 
@@ -199,7 +191,7 @@ const StepTask = ({
 
 const StepSubtask = ({
   selectedTask, subtasks, loading, selectedSubtask, setSelectedSubtask,
-  onBack, onNext, isDark,
+  onBack, onNext, onGoToBoard, isDark,
 }: {
   selectedTask: SessionTask | null;
   subtasks: SessionSubtask[];
@@ -208,24 +200,35 @@ const StepSubtask = ({
   setSelectedSubtask: (s: SessionSubtask) => void;
   onBack: () => void;
   onNext: () => void;
+  onGoToBoard: () => void;
   isDark: boolean;
 }) => {
-  const active = subtasks.filter((s) => s.subtask_status !== "Done");
-  const canNext = active.length === 0 || !!selectedSubtask;
+  const inDoing = subtasks.filter((s) => s.subtask_status === "Doing");
+  const hasNoSubtasks = subtasks.length === 0;
+  const allDone =
+    subtasks.length > 0 && subtasks.every((s) => s.subtask_status === "Done");
+  const needsDoingFirst =
+    subtasks.some((s) => s.subtask_status !== "Done") && inDoing.length === 0;
+
+  const canNext =
+    hasNoSubtasks ||
+    allDone ||
+    (inDoing.length > 0 && !!selectedSubtask && selectedSubtask.subtask_status === "Doing");
 
   return (
     <div>
       <h2 className={cn("text-[26px] font-extrabold leading-tight tracking-tight mb-1",
         isDark ? "text-white" : "text-[#1a1830]")}>
-        Pick one{" "}
-        <span className={isDark ? "text-violet-400" : "text-[#534AB7]"}>subtask</span>
+        Focus on{" "}
+        <span className={isDark ? "text-violet-400" : "text-[#534AB7]"}>Doing</span>
       </h2>
       <p className="text-[11px] mb-1 truncate"
          style={{ color: isDark ? "rgba(139,92,246,0.55)" : "#7c6ff7" }}>
         {selectedTask?.task_name}
       </p>
       <p className={cn("text-[13px] mb-5", isDark ? "text-white/35" : "text-[#1a1830]/45")}>
-        One thing. What exactly are you doing right now?
+        Only a subtask in <span className="font-semibold opacity-90">Doing</span> can be your focus
+        (one at a time). Move one there on your task board first.
       </p>
 
       {loading ? (
@@ -234,7 +237,7 @@ const StepSubtask = ({
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading subtasks…
         </div>
-      ) : active.length === 0 ? (
+      ) : hasNoSubtasks ? (
         <div className="py-5 text-center mb-5">
           <p className="text-[13px] mb-1"
              style={{ color: isDark ? "rgba(255,255,255,0.40)" : "rgba(26,24,48,0.45)" }}>
@@ -245,10 +248,45 @@ const StepSubtask = ({
             You can still run a session focused on this task.
           </p>
         </div>
+      ) : needsDoingFirst ? (
+        <div className="py-5 text-center mb-5 px-1">
+          <p className="text-[13px] mb-2 leading-snug"
+             style={{ color: isDark ? "rgba(255,255,255,0.42)" : "rgba(26,24,48,0.50)" }}>
+            Nothing is in <strong className={isDark ? "text-violet-300/90" : "text-[#534AB7]"}>Doing</strong> yet.
+          </p>
+          <p className="text-[11px] leading-relaxed mb-4"
+             style={{ color: isDark ? "rgba(255,255,255,0.22)" : "rgba(26,24,48,0.32)" }}>
+            Drag a subtask into the <strong className="opacity-70">Doing</strong> column on the task board, then come back here.
+          </p>
+          <button
+            onClick={onGoToBoard}
+            className={cn(
+              "inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold",
+              "transition-all duration-150 cursor-pointer",
+              isDark
+                ? "bg-violet-500/18 text-violet-300 border border-violet-500/30 hover:bg-violet-500/28"
+                : "bg-violet-500/10 text-[#534AB7] border border-violet-500/22 hover:bg-violet-500/18"
+            )}
+          >
+            <ChevronRight style={{ width: 15, height: 15 }} />
+            Go to task board
+          </button>
+        </div>
+      ) : allDone ? (
+        <div className="py-5 text-center mb-5">
+          <p className="text-[13px] mb-1"
+             style={{ color: isDark ? "rgba(255,255,255,0.40)" : "rgba(26,24,48,0.45)" }}>
+            All subtasks are done
+          </p>
+          <p className="text-[11px]"
+             style={{ color: isDark ? "rgba(255,255,255,0.22)" : "rgba(26,24,48,0.30)" }}>
+            Continue with the task only, or add new subtasks on the board.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-col gap-1.5 mb-5 max-h-[280px] overflow-y-auto
                         scrollbar-thin scrollbar-thumb-violet-500/30 scrollbar-track-transparent pr-0.5">
-          {active.map((subtask) => {
+          {inDoing.map((subtask) => {
             const sel = selectedSubtask?.subtask_id === subtask.subtask_id;
             return (
               <button
@@ -319,94 +357,59 @@ const StepSubtask = ({
               : "bg-violet-500/05 text-violet-700/20 cursor-not-allowed border border-transparent"
           )}
         >
-          {active.length === 0 ? "Skip — Set duration →" : "Next — Set duration →"}
+          {hasNoSubtasks || allDone ? "Skip — Start →" : "Next — Start →"}
         </button>
       </div>
     </div>
   );
 };
 
-// ─── Step 3 — Duration + Begin ────────────────────────────────────────────────
+// ─── Step 3 — MVP: always start with 5-minute micro-timer ─────────────────────
 
-const StepDuration = ({
-  selectedTask, selectedSubtask, duration, setDuration, onBack, onBegin, isDark,
+const StepMicroStart = ({
+  selectedTask,
+  selectedSubtask,
+  onBack,
+  onBegin,
+  isDark,
 }: {
-  selectedTask:    SessionTask | null;
+  selectedTask: SessionTask | null;
   selectedSubtask: SessionSubtask | null;
-  duration:        Duration;
-  setDuration:     (d: Duration) => void;
-  onBack:          () => void;
-  onBegin:         () => void;
-  isDark:          boolean;
+  onBack: () => void;
+  onBegin: () => void;
+  isDark: boolean;
 }) => (
   <div>
-    <h2 className={cn("text-[26px] font-extrabold leading-tight tracking-tight mb-1.5",
-      isDark ? "text-white" : "text-[#1a1830]")}>
-      How long will you{" "}
-      <span className={isDark ? "text-violet-400" : "text-[#534AB7]"}>focus?</span>
+    <h2
+      className={cn(
+        "text-[26px] font-extrabold leading-tight tracking-tight mb-1.5",
+        isDark ? "text-white" : "text-[#1a1830]"
+      )}
+    >
+      Start with a{" "}
+      <span className={isDark ? "text-violet-400" : "text-[#534AB7]"}>5-minute</span> block
     </h2>
-    <p className={cn("text-[13px] mb-6", isDark ? "text-white/35" : "text-[#1a1830]/45")}>
-      Pick a duration that feels achievable right now.
+    <p className={cn("text-[13px] mb-6 leading-relaxed", isDark ? "text-white/35" : "text-[#1a1830]/45")}>
+      The Five-Minute Rule: every focus session begins here. When the timer ends, you can extend to 25 minutes,
+      take a break, or switch — your choice.
     </p>
 
-    {/* Duration grid */}
-    <div className="grid grid-cols-4 gap-2 mb-5">
-      {DURATIONS.map((d) => {
-        const sel = duration.mins === d.mins;
-        return (
-          <button
-            key={d.mins}
-            onClick={() => setDuration(d)}
-            className={cn(
-              "flex flex-col items-center py-4 rounded-2xl cursor-pointer",
-              "border-[1.5px] transition-all duration-150",
-              sel
-                ? isDark
-                  ? "bg-violet-500/[0.18] border-violet-500/55"
-                  : "bg-violet-500/10 border-violet-600/45"
-                : isDark
-                ? "bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.07] hover:border-white/[0.14]"
-                : "bg-white/60 border-violet-300/18 hover:bg-white/90 hover:border-violet-400/30"
-            )}
-          >
-            <span className={cn(
-              "text-[26px] font-extrabold leading-none",
-              sel
-                ? isDark ? "text-white" : "text-[#534AB7]"
-                : isDark ? "text-white/55" : "text-[#1a1830]/45"
-            )}>
-              {d.mins}
-            </span>
-            <span className={cn(
-              "text-[9px] font-bold uppercase tracking-[0.08em] mt-1.5",
-              sel
-                ? isDark ? "text-violet-300/70" : "text-violet-700/60"
-                : isDark ? "text-white/20" : "text-[#1a1830]/22"
-            )}>
-              {d.label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-
-    {/* Confirm summary */}
-    <div className={cn(
-      "flex items-start gap-2.5 px-4 py-3.5 rounded-xl mb-5",
-      isDark
-        ? "bg-violet-500/[0.08] border border-violet-400/18"
-        : "bg-violet-500/[0.07] border border-violet-400/16"
-    )}>
+    <div
+      className={cn(
+        "flex items-start gap-2.5 px-4 py-3.5 rounded-xl mb-5",
+        isDark
+          ? "bg-violet-500/[0.08] border border-violet-400/18"
+          : "bg-violet-500/[0.07] border border-violet-400/16"
+      )}
+    >
       <Clock
         className="mt-0.5 shrink-0"
         style={{ width: 14, height: 14, color: isDark ? "#a78bfa" : "#534AB7" }}
       />
       <div>
         <p className={cn("text-[12px] leading-relaxed", isDark ? "text-white/55" : "text-[#1a1830]/50")}>
-          <span className={cn("font-bold", isDark ? "text-violet-300" : "text-[#534AB7]")}>
-            {duration.mins} min
-          </span>
-          {" focused on "}
+          <span className={cn("font-bold", isDark ? "text-violet-300" : "text-[#534AB7]")}>5 min</span>
+          {" micro-timer · "}
           <span className={cn("font-medium", isDark ? "text-white/78" : "text-[#1a1830]/75")}>
             {selectedSubtask?.subtask_name ?? selectedTask?.task_name}
           </span>
@@ -419,8 +422,8 @@ const StepDuration = ({
       </div>
     </div>
 
-    {/* Begin CTA */}
     <button
+      type="button"
       onClick={onBegin}
       className={cn(
         "w-full py-4 rounded-2xl text-[15px] font-extrabold cursor-pointer",
@@ -432,10 +435,11 @@ const StepDuration = ({
       )}
     >
       <Play style={{ width: 16, height: 16 }} />
-      Begin Focus Session
+      Start 5-minute focus
     </button>
 
     <button
+      type="button"
       onClick={onBack}
       className={cn(
         "w-full py-3 rounded-xl text-[13px] font-semibold cursor-pointer",
@@ -466,7 +470,6 @@ const Sessions = () => {
   const [subtasks, setSubtasks]         = useState<SessionSubtask[]>([]);
   const [loadingSubtasks, setLoadingSubtasks] = useState(false);
   const [selectedSubtask, setSelectedSubtask] = useState<SessionSubtask | null>(null);
-  const [duration, setDuration]         = useState<Duration>({ mins: 25, label: "Pomodoro" });
 
   // Fetch tasks
   useEffect(() => {
@@ -491,19 +494,40 @@ const Sessions = () => {
     if (!task) return;
     setSelectedTask(task);
 
-    // Fetch subtasks then pre-select and jump to step 3
     fetch(`/api/tasks/${qTaskId}/subtasks`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => (r.ok ? r.json() : []))
       .then((subs: SessionSubtask[]) => {
         setSubtasks(subs);
         if (qSubtaskId) {
           const sub = subs.find((s) => s.subtask_id === qSubtaskId);
-          if (sub) setSelectedSubtask(sub);
+          if (sub?.subtask_status === "Doing") {
+            setSelectedSubtask(sub);
+            setStep(3);
+          } else if (sub) {
+            setSelectedSubtask(null);
+            toast.info("Move this subtask to Doing on your board to focus on it.");
+            setStep(2);
+          } else {
+            setSelectedSubtask(null);
+            toast.info("That subtask was not found.");
+            setStep(2);
+          }
+        } else {
+          setStep(3);
         }
-        setStep(3);
       })
-      .catch(() => { setStep(3); });
+      .catch(() => {
+        setStep(3);
+      });
   }, [loading, tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // On subtask step: only Doing subtasks count — auto-select when there is exactly one
+  useEffect(() => {
+    if (step !== 2) return;
+    const doing = subtasks.filter((s) => s.subtask_status === "Doing");
+    if (doing.length === 1) setSelectedSubtask(doing[0]);
+    else if (doing.length === 0) setSelectedSubtask(null);
+  }, [step, subtasks]);
 
   // Fetch subtasks when task changes (manual navigation)
   useEffect(() => {
@@ -518,10 +542,14 @@ const Sessions = () => {
 
   const beginSession = () => {
     if (!selectedTask) return;
+    if (selectedSubtask && selectedSubtask.subtask_status !== "Doing") {
+      toast.error("Only a subtask in Doing can be linked to a focus session.");
+      return;
+    }
     const p = new URLSearchParams({
       taskId:    selectedTask.task_id,
       taskTitle: selectedTask.task_name,
-      duration:  String(duration.mins),
+      duration: "5",
     });
     if (selectedSubtask) {
       p.set("subtaskId",    selectedSubtask.subtask_id);
@@ -537,7 +565,7 @@ const Sessions = () => {
   };
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-48px)] items-center justify-center px-6 py-12">
+    <div className="flex flex-col h-full items-center justify-center px-6 py-12">
       <AnimatePresence mode="wait">
         <motion.div
           key={step}
@@ -576,15 +604,14 @@ const Sessions = () => {
                 setSelectedSubtask={setSelectedSubtask}
                 onBack={() => setStep(1)}
                 onNext={() => setStep(3)}
+                onGoToBoard={() => selectedTask && navigate(`/tasks/${selectedTask.task_id}`)}
                 isDark={isDark}
               />
             )}
             {step === 3 && (
-              <StepDuration
+              <StepMicroStart
                 selectedTask={selectedTask}
                 selectedSubtask={selectedSubtask}
-                duration={duration}
-                setDuration={setDuration}
                 onBack={() => setStep(2)}
                 onBegin={beginSession}
                 isDark={isDark}

@@ -3,11 +3,14 @@ import { useTheme } from "@/context/ThemeContext";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   List, Star, Clock, Heart, ArrowUpRight, MapPin, Check, Plus, Paperclip, Globe, ArrowRight,
+  Loader2, Brain,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { FinchBird, FinchBirdFlight } from "@/components/finch-bird";
+import { useAuth } from "@/context/AuthContext";
+import { ConsentModal } from "@/components/ConsentModal";
 
 // ─── Data ──────────────────────────────────────────────────────────────────
 
@@ -78,10 +81,20 @@ interface Task {
   subtasks: { columnId: string }[]
 }
 
+interface BreakdownSubtaskRow {
+  subtask_name: string
+  energy_level: string
+}
+
 interface Message {
   role: "user" | "ai"
   content: string
   suggestedTask?: { id: string; title: string }
+  /** Finch breakdown — user can Accept to create task + subtasks on the Kanban */
+  breakdown?: {
+    subtasks: BreakdownSubtaskRow[]
+    accepted?: boolean
+  }
 }
 
 interface TaskApiRow {
@@ -95,9 +108,10 @@ interface ChatHistoryRow {
   content: string
 }
 
-interface BreakdownSubtaskRow {
-  subtask_name: string
-  energy_level: string
+function normSubtaskEnergy(e: string): "Low" | "High" {
+  const u = (e || "").toLowerCase()
+  if (u.includes("high")) return "High"
+  return "Low"
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -137,6 +151,7 @@ const Chat = () => {
   const isDark = theme === "dark"
   const router = useNavigate()
   const prefersReducedMotion = useReducedMotion()
+  const { user } = useAuth()
 
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -145,6 +160,8 @@ const Chat = () => {
   const [tasks, setTasks] = useState<Task[]>([])
   const [chatSessionId, setChatSessionId] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
+  const [acceptingBreakdownIdx, setAcceptingBreakdownIdx] = useState<number | null>(null)
+  const [showConsentModal, setShowConsentModal] = useState(false)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -153,8 +170,14 @@ const Chat = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages, isLoading])
 
-  // Fetch tasks for AI context
+  // Open consent modal automatically when visiting Chat without AI consent (user can still dismiss it).
   useEffect(() => {
+    if (user && !user.is_consented_ai) {
+      setShowConsentModal(true)
+    }
+  }, [user?.user_id, user?.is_consented_ai])
+
+  const fetchTaskContext = useCallback(() => {
     fetch("/api/tasks", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
       .then((data: TaskApiRow[]) =>
@@ -169,6 +192,11 @@ const Chat = () => {
       )
       .catch(() => {})
   }, [])
+
+  // Fetch tasks for AI context
+  useEffect(() => {
+    fetchTaskContext()
+  }, [fetchTaskContext])
 
   // Load session from URL param (navigated from /chat/history)
   useEffect(() => {
@@ -204,6 +232,63 @@ const Chat = () => {
     setInput("")
     setChatSessionId(null)
   }, [chatSessionId, messages.length])
+
+  const acceptFinchBreakdown = async (messageIndex: number) => {
+    const msg = messages[messageIndex]
+    if (!msg?.breakdown?.subtasks?.length || msg.breakdown.accepted) return
+
+    const priorUser = [...messages.slice(0, messageIndex)].reverse().find((m) => m.role === "user")
+    const parentTitle =
+      (priorUser?.content ?? "").trim().slice(0, 200) || "Task from Finch"
+
+    const subs = msg.breakdown.subtasks.filter((s) => s.subtask_name?.trim())
+    const taskEnergy = subs.some((s) => normSubtaskEnergy(s.energy_level) === "High") ? "High" : "Low"
+
+    setAcceptingBreakdownIdx(messageIndex)
+    try {
+      const taskRes = await fetch("/api/tasks", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_name: parentTitle, energy_level: taskEnergy }),
+      })
+      if (!taskRes.ok) {
+        const err = await taskRes.json().catch(() => ({})) as { message?: string }
+        throw new Error(err.message || "Could not create task")
+      }
+      const taskRow = (await taskRes.json()) as { task_id: string }
+      const taskId = taskRow.task_id
+
+      for (const st of subs) {
+        const r = await fetch(`/api/tasks/${taskId}/subtasks`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subtask_name: st.subtask_name.trim(),
+            energy_level: normSubtaskEnergy(st.energy_level),
+            is_approved: true,
+          }),
+        })
+        if (!r.ok) throw new Error("Failed to add subtask")
+      }
+
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === messageIndex && m.breakdown
+            ? { ...m, breakdown: { ...m.breakdown, accepted: true } }
+            : m
+        )
+      )
+      fetchTaskContext()
+      toast.success("Added to your Kanban — opening Tasks.")
+      router("/tasks")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save to the board.")
+    } finally {
+      setAcceptingBreakdownIdx(null)
+    }
+  }
 
   const sendMessage = async (userText: string) => {
     if (!userText.trim()) return
@@ -248,16 +333,22 @@ const Chat = () => {
       const type = result?.type ?? "text"
 
       let aiText = ""
+      let breakdownPayload: Message["breakdown"] = undefined
       if (typeof result === "string") {
         aiText = result
       } else if (type === "question" || type === "momentum") {
         aiText = result.content ?? ""
       } else if (type === "breakdown") {
+        const rawSubs: BreakdownSubtaskRow[] = Array.isArray(result.subtasks) ? result.subtasks : []
+        const subtasks = rawSubs.filter((st) => st?.subtask_name?.trim())
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +
-          (result.subtasks || [])
+          subtasks
             .map((st: BreakdownSubtaskRow, i: number) => `${i + 1}. **${st.subtask_name}** _(${st.energy_level})_`)
             .join("\n") +
           (result.chat_closing ? "\n\n" + result.chat_closing : "")
+        if (subtasks.length > 0) {
+          breakdownPayload = { subtasks, accepted: false }
+        }
       } else if (type === "prioritize") {
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +
           `**Focus Now:** ${result.focus_now}\n\n` +
@@ -274,7 +365,10 @@ const Chat = () => {
         aiText = aiText.replace(/SUGGEST_TASK:.*$/m, "").trim()
       }
 
-      setMessages(prev => [...prev, { role: "ai", content: aiText, suggestedTask: suggestedTaskObj }])
+      setMessages(prev => [
+        ...prev,
+        { role: "ai", content: aiText, suggestedTask: suggestedTaskObj, breakdown: breakdownPayload },
+      ])
 
       fetch(`/api/chat/${sid}/messages`, {
         method: "POST", credentials: "include",
@@ -292,14 +386,63 @@ const Chat = () => {
   const handleSend = () => { sendMessage(input) }
   const isEmpty = messages.length === 0
 
+  // ── Consent gate ─────────────────────────────────────────────────────────
+  if (user && !user.is_consented_ai) {
+    return (
+      <>
+        <div className="flex flex-col items-center justify-center h-full px-6 py-16 text-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+            className="max-w-sm w-full"
+          >
+            {/* Lock icon */}
+            <div
+              className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
+              style={{ background: "hsl(var(--primary) / 0.1)", border: "1px solid hsl(var(--primary) / 0.2)" }}
+            >
+              <Brain className="w-8 h-8 text-primary/70" />
+            </div>
+            <h2 className="text-xl font-bold mb-2 tracking-tight">AI Features are locked</h2>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+              Finch, your ADHD-aware focus companion, uses OpenAI to break down tasks and give
+              personalised coaching. Enable AI processing to start chatting.
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setShowConsentModal(true)}
+              className="w-full h-[48px] rounded-xl font-semibold text-[14px] text-primary-foreground bg-primary hover:bg-primary/90 btn-glow transition-all duration-200"
+            >
+              Enable AI Features
+            </motion.button>
+            <p className="mt-4 text-[11px] text-muted-foreground/50">
+              You can revoke this at any time in{" "}
+              <Link to="/settings" className="underline underline-offset-2 hover:text-muted-foreground">
+                Settings → Data &amp; Privacy
+              </Link>
+            </p>
+          </motion.div>
+        </div>
+        {showConsentModal && (
+          <ConsentModal
+            feature="ai"
+            onClose={() => setShowConsentModal(false)}
+          />
+        )}
+      </>
+    )
+  }
+
   return (
-    <div className="flex flex-col min-h-[calc(100vh-3rem)] -m-6 md:-m-8 bg-transparent">
+    <div className="flex flex-col h-full bg-transparent">
 
       {/* ── Top action bar ── */}
       <div className={cn(
         "flex items-center justify-between px-5 py-2.5 shrink-0",
-        "border-b border-violet-200/15 dark:border-white/[0.06]",
-        "bg-white/[0.25] dark:bg-transparent backdrop-blur-sm"
+        "border-b border-border/50 dark:border-white/[0.06]",
+        "bg-background/70 dark:bg-transparent backdrop-blur-sm"
       )}>
         <Link
           to="/chat/history"
@@ -329,28 +472,28 @@ const Chat = () => {
       </div>
 
       {/* ── Main chat column ── */}
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
 
         <div className="flex-1 flex flex-col overflow-y-auto min-h-0 relative z-10">
           {isEmpty ? (
             <div className="flex flex-col items-center justify-center
-                            flex-1 px-6 pt-10 pb-6 text-center">
+                            flex-1 px-6 pt-4 pb-3 text-center">
 
               {/* Avatar */}
-              <div className="relative mb-6">
-                <div className="w-[88px] h-[88px] rounded-full flex items-center justify-center
+              <div className="relative mb-3">
+                <div className="w-[68px] h-[68px] rounded-full flex items-center justify-center
                                 bg-gradient-to-br from-violet-500 to-[#3d2e9e]
-                                shadow-[0_14px_36px_rgba(124,111,247,0.40)] relative z-10">
-                  <FinchBirdFlight size={52} variant="white" />
+                                shadow-[0_10px_28px_rgba(124,111,247,0.40)] relative z-10">
+                  <FinchBirdFlight size={40} variant="white" />
                 </div>
                 <motion.div
-                  className="absolute inset-[-8px] rounded-full
+                  className="absolute inset-[-4px] rounded-full
                              border-[1.5px] border-violet-400/25
                              dark:border-violet-400/28 pointer-events-none"
                   animate={prefersReducedMotion ? {} : { opacity: [0.3, 1, 0.3], scale: [1, 1.015, 1] }}
                   transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }} />
                 <motion.div
-                  className="absolute inset-[-16px] rounded-full
+                  className="absolute inset-[-9px] rounded-full
                              border border-violet-400/12
                              dark:border-violet-400/14 pointer-events-none"
                   animate={prefersReducedMotion ? {} : { opacity: [0.3, 1, 0.3], scale: [1, 1.015, 1] }}
@@ -361,7 +504,7 @@ const Chat = () => {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="text-[28px] font-extrabold tracking-tight mb-1.5"
+                className="text-[22px] font-extrabold tracking-tight mb-1"
                 style={{ color: isDark ? "#ffffff" : "#1a1830" }}>
                 Hi, I'm{" "}
                 <span style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>Finch.</span>
@@ -371,10 +514,9 @@ const Chat = () => {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.15 }}
-                className="text-[13px] leading-relaxed mb-3 max-w-[300px]"
+                className="text-[12px] leading-relaxed mb-3 max-w-[280px]"
                 style={{ color: isDark ? "rgba(148,163,184,1)" : "rgba(26,24,48,0.60)" }}>
-                Your ADHD-aware focus companion.<br />
-                Ask me anything — I won't judge.
+                Your ADHD-aware focus companion. Ask me anything — I won't judge.
               </motion.p>
 
               {/* Mood selector */}
@@ -382,7 +524,7 @@ const Chat = () => {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="flex gap-2 flex-wrap justify-center mb-7">
+                className="flex gap-2 flex-wrap justify-center mb-4">
                 {MOODS.map((mood) => (
                   <button
                     key={mood.label}
@@ -403,27 +545,27 @@ const Chat = () => {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.25 }}
-                className="grid grid-cols-2 gap-2 w-full max-w-[520px] mb-5">
+                className="grid grid-cols-2 gap-2 w-full max-w-[520px] mb-2">
                 {PROMPT_CARDS.map((card) => (
                   <button
                     key={card.title}
                     onClick={() => sendMessage(card.prompt)}
                     className={cn(
-                      "group flex flex-col gap-0 p-5 rounded-2xl text-left cursor-pointer",
+                      "group flex flex-col gap-0 p-3.5 rounded-2xl text-left cursor-pointer",
                       "border transition-all duration-150",
-                      "bg-white/70 dark:bg-white/[0.05]",
-                      "border-violet-200/20 dark:border-slate-700/50",
+                      "bg-white/92 dark:bg-white/[0.05]",
+                      "border-violet-300/40 dark:border-slate-700/50",
                       "hover:bg-white/95 dark:hover:bg-white/[0.10]",
                       "hover:shadow-lg hover:border-violet-300/40 dark:hover:border-slate-600/60",
                       "hover:-translate-y-[2px]",
                     )}>
                     <div className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                      "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
                       card.iconBg
                     )}>
                       {card.icon}
                     </div>
-                    <h3 className="text-[13px] font-[700] mb-0.5 mt-3"
+                    <h3 className="text-[13px] font-[700] mb-0.5 mt-2"
                         style={{ color: isDark ? "rgba(226,232,240,1)" : "#1a1830" }}>
                       {card.title}
                     </h3>
@@ -463,7 +605,8 @@ const Chat = () => {
                         </div>
                         <div className="max-w-[82%] px-4 py-3 rounded-[4px_18px_18px_18px]
                                         text-[13px] leading-relaxed
-                                        bg-white/[0.04] border border-white/[0.08]
+                                        bg-muted/70 border border-border/50
+                                        dark:bg-white/[0.04] dark:border-white/[0.08]
                                         backdrop-blur-sm whitespace-pre-wrap"
                              style={{ color: isDark ? "rgba(226,232,240,1)" : "rgba(26,24,48,0.88)" }}>
                           {message.content}
@@ -478,6 +621,34 @@ const Chat = () => {
                               {message.suggestedTask.title} → Start session
                             </button>
                           )}
+                          {message.breakdown &&
+                            !message.breakdown.accepted &&
+                            message.breakdown.subtasks.length > 0 && (
+                              <motion.button
+                                type="button"
+                                layout
+                                onClick={() => void acceptFinchBreakdown(idx)}
+                                disabled={acceptingBreakdownIdx !== null}
+                                whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+                                className="flex items-center justify-center gap-2 mt-3 px-3 py-2.5 rounded-xl w-full
+                                           bg-emerald-500/15 border border-emerald-400/35
+                                           text-[12px] font-[700] text-emerald-700 dark:text-emerald-300
+                                           hover:bg-emerald-500/22 disabled:opacity-50 disabled:pointer-events-none
+                                           transition-colors duration-150"
+                              >
+                                {acceptingBreakdownIdx === idx ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                                ) : (
+                                  <Check className="w-3.5 h-3.5 shrink-0" />
+                                )}
+                                Accept & add to Kanban
+                              </motion.button>
+                            )}
+                          {message.breakdown?.accepted && (
+                            <p className="mt-3 text-[11px] font-medium text-emerald-600 dark:text-emerald-400/90">
+                              Added to your Tasks board. Open a task card to edit subtasks or drag them on the board.
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}
@@ -491,7 +662,8 @@ const Chat = () => {
                       <FinchBird size={14} variant="white" />
                     </div>
                     <div className="flex gap-1.5 px-4 py-3.5 rounded-[4px_18px_18px_18px]
-                                    bg-white/[0.04] border border-white/[0.08]">
+                                    bg-muted/70 border border-border/50
+                                    dark:bg-white/[0.04] dark:border-white/[0.08]">
                       {[0, 0.2, 0.4].map((delay, i) => (
                         <motion.div key={i}
                           className="w-1.5 h-1.5 rounded-full bg-violet-400/60"
@@ -508,15 +680,16 @@ const Chat = () => {
         </div>
 
         {/* ── Input bar ── */}
-        <div className="sticky bottom-0 z-20 px-5 py-4
-                        border-t border-violet-200/12 dark:border-white/[0.05]">
+        <div className="shrink-0 px-5 py-4
+                        border-t border-border/50 dark:border-white/[0.05]
+                        bg-background/85 dark:bg-transparent backdrop-blur-md">
           <div className="max-w-2xl mx-auto">
             <div className={cn(
               "rounded-[18px] px-4 pt-3 pb-2.5",
-              "bg-white/80 dark:bg-white/[0.04]",
-              "border-[1.5px] border-violet-300/20 dark:border-white/[0.09]",
+              "bg-background dark:bg-white/[0.04]",
+              "border-[1.5px] border-border/60 dark:border-white/[0.09]",
               "backdrop-blur-[14px]",
-              "focus-within:border-violet-400/48 dark:focus-within:border-violet-500/42",
+              "focus-within:border-primary/40 dark:focus-within:border-violet-500/42",
               "transition-colors duration-150"
             )}>
               <textarea
