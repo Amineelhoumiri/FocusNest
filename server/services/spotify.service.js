@@ -14,11 +14,16 @@ const SCOPES = [
  * Creates a configured SpotifyWebApi client.
  * Optionally sets an access token for authenticated calls.
  */
-function createClient(accessToken = null) {
+function createClient(accessToken = null, requestHost = null) {
+    // SPOTIFY_REDIRECT_URI must be set in production and match the Spotify app dashboard.
+    // If unset, we derive it from the incoming request host (same-origin deploy fallback).
+    const redirectUri = process.env.SPOTIFY_REDIRECT_URI ||
+        (requestHost ? `${requestHost}/api/spotify/callback` : "http://localhost:8080/api/spotify/callback");
+
     const api = new SpotifyWebApi({
         clientId:     process.env.SPOTIFY_CLIENT_ID,
         clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-        redirectUri:  process.env.SPOTIFY_REDIRECT_URI,
+        redirectUri,
     });
     if (accessToken) api.setAccessToken(accessToken);
     return api;
@@ -28,18 +33,19 @@ function createClient(accessToken = null) {
  * Generate the Spotify OAuth authorization URL.
  * @param {string} state - Signed JWT containing user_id (prevents CSRF)
  */
-function getAuthUrl(state) {
+function getAuthUrl(state, requestHost = null) {
     // show_dialog=false — avoids a known Development Mode quirk where
     // show_dialog=true can cause access_denied even when user clicks Agree
-    return createClient().createAuthorizeURL(SCOPES, state, false);
+    return createClient(null, requestHost).createAuthorizeURL(SCOPES, state, false);
 }
 
 /**
  * Exchange an authorization code for access + refresh tokens.
  * @param {string} code - The code Spotify sends to the callback URL
  */
-async function exchangeCode(code) {
-    const data = await createClient().authorizationCodeGrant(code);
+async function exchangeCode(code, requestHost = null) {
+    // The redirect URI passed here must exactly match the one used in getAuthUrl
+    const data = await createClient(null, requestHost).authorizationCodeGrant(code);
     return {
         access_token:  data.body.access_token,
         refresh_token: data.body.refresh_token,

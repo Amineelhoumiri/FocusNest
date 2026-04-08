@@ -11,23 +11,29 @@ import { useAuth } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FocusScoreProvider } from "@/context/FocusScoreContext";
 import { SpotifyPlaybackProvider } from "@/context/SpotifyPlaybackContext";
+import { YouTubePlaybackProvider } from "@/context/YouTubePlaybackContext";
+import { ZenModeProvider } from "@/context/ZenModeContext";
 import AppLayout from "@/components/layout/AppLayout";
 
 const renderAppLayout = () => {
   return render(
     <ThemeProvider>
-      <FocusScoreProvider>
-        <SpotifyPlaybackProvider>
-          <MemoryRouter initialEntries={["/dashboard"]}>
-            <Routes>
-              <Route path="/login" element={<div>Login Page</div>} />
-              <Route element={<AppLayout />}>
-                <Route path="/dashboard" element={<div>Dashboard Content</div>} />
-              </Route>
-            </Routes>
-          </MemoryRouter>
-        </SpotifyPlaybackProvider>
-      </FocusScoreProvider>
+      <ZenModeProvider>
+        <FocusScoreProvider>
+          <SpotifyPlaybackProvider>
+            <YouTubePlaybackProvider>
+              <MemoryRouter initialEntries={["/dashboard"]}>
+                <Routes>
+                  <Route path="/login" element={<div>Login Page</div>} />
+                  <Route element={<AppLayout />}>
+                    <Route path="/dashboard" element={<div>Dashboard Content</div>} />
+                  </Route>
+                </Routes>
+              </MemoryRouter>
+            </YouTubePlaybackProvider>
+          </SpotifyPlaybackProvider>
+        </FocusScoreProvider>
+      </ZenModeProvider>
     </ThemeProvider>
   );
 };
@@ -44,14 +50,14 @@ describe("AppLayout auth guard", () => {
     expect(screen.queryByText("Dashboard Content")).toBeNull();
   });
 
-  it("renders nothing (null) while loading", () => {
+  it("shows loading shell while session is resolving", () => {
     (useAuth as ReturnType<typeof vi.fn>).mockReturnValue({
       user: null,
       isLoading: true,
     });
 
-    const { container } = renderAppLayout();
-    expect(container.firstChild).toBeNull();
+    renderAppLayout();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading");
   });
 
   it("renders children when user is authenticated", () => {

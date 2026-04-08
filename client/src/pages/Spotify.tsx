@@ -1,14 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Play, Pause, SkipForward, SkipBack,
-  Volume2, VolumeX, Shuffle, Music2, Loader2, AlertCircle, ExternalLink,
-} from "lucide-react";
+import { Play, Music2, Loader2, AlertCircle, ExternalLink, Search } from "lucide-react";
 import { toast } from "sonner";
-import { useYouTubePlayer }  from "@/hooks/useYouTubePlayer";
+import { useYouTubePlayback } from "@/context/YouTubePlaybackContext";
 import { useSpotifyPlayback } from "@/context/SpotifyPlaybackContext";
 import { useTheme }          from "@/context/ThemeContext";
 import { cn }                from "@/lib/utils";
+import { MusicWebBottomBar, MusicWebHero } from "@/components/music/MusicWebPlayer";
+import { Card } from "@/components/ui/card";
+import {
+  MUSIC_SOURCE_STORAGE_KEY,
+  notifyMusicPageSourceChanged,
+} from "@/lib/music-source";
+import { useAuth } from "@/context/AuthContext";
+import { ConsentModal } from "@/components/ConsentModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,11 +32,18 @@ type Source = "free" | "spotify";
 const ytThumb  = (videoId: string | null) =>
   videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null;
 
-const fmtSec   = (s: number) =>
-  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
 const pickRandom = (arr: CuratedPlaylist[]) =>
   arr[Math.floor(Math.random() * arr.length)];
+
+/** Free mode lists YouTube playlists; strip misleading “Spotify ·” from catalog copy. */
+const freePlaylistRowSubtitle = (desc: string | null): string => {
+  if (desc == null || !desc.trim()) return "YouTube · Playlist";
+  let t = desc.trim();
+  t = t.replace(/^\s*spotify\s*[·•]\s*/i, "YouTube · ");
+  t = t.replace(/^\s*spotify\s*-\s*/i, "YouTube · ");
+  t = t.replace(/^\s*spotify\s+/i, "YouTube · ");
+  return t;
+};
 
 // ─── Spotify logo SVG ────────────────────────────────────────────────────────
 
@@ -41,61 +53,12 @@ const SpotifyLogo = ({ size = 16, className = "" }: { size?: number; className?:
   </svg>
 );
 
-// ─── Equalizer bars ───────────────────────────────────────────────────────────
-
-const EqBars = ({ playing, color = "hsl(var(--primary))" }: { playing: boolean; color?: string }) => (
-  <div className="flex items-end gap-[2px] h-3">
-    {[0.3, 0.6, 0.45, 0.75, 0.5].map((h, i) => (
-      <motion.div
-        key={i}
-        className="w-[2px] rounded-full"
-        style={{ background: color, minHeight: 3 }}
-        animate={playing ? { height: [`${h * 12}px`, "12px", `${h * 8}px`] } : { height: "3px" }}
-        transition={{ duration: 0.6 + i * 0.1, repeat: Infinity, ease: "easeInOut", delay: i * 0.12 }}
-      />
-    ))}
-  </div>
+const YouTubeMark = ({ size = 14, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" className={cn("shrink-0", className)} aria-hidden>
+    <rect x="2" y="5" width="20" height="14" rx="3.5" fill="#FF0000" />
+    <path d="M10 9.2v5.6L15.2 12 10 9.2z" fill="white" />
+  </svg>
 );
-
-// ─── Seek bar ─────────────────────────────────────────────────────────────────
-
-const SeekBar = ({ current, duration, onSeek }: { current: number; duration: number; onSeek: (s: number) => void }) => {
-  const ref  = useRef<HTMLDivElement>(null);
-  const pct  = duration > 0 ? (current / duration) * 100 : 0;
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
-
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!ref.current) return;
-    const rect = ref.current.getBoundingClientRect();
-    onSeek(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * duration);
-  };
-
-  return (
-    <div className="w-full group">
-      <div
-        ref={ref}
-        onClick={handleClick}
-        className="relative h-1.5 rounded-full cursor-pointer"
-        style={{ background: isDark ? "rgba(255,255,255,0.10)" : "rgba(83,74,183,0.12)" }}
-      >
-        <motion.div
-          className="absolute left-0 top-0 h-full rounded-full"
-          style={{ width: `${pct}%`, background: "hsl(var(--primary))" }}
-          transition={{ duration: 0.5 }}
-        />
-        <div
-          className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ left: `calc(${pct}% - 6px)`, background: "white", boxShadow: "0 0 8px rgba(255,255,255,0.4)" }}
-        />
-      </div>
-      <div className="flex justify-between mt-1.5 text-[10px] tabular-nums text-muted-foreground/65">
-        <span>{fmtSec(current)}</span>
-        <span>{fmtSec(duration)}</span>
-      </div>
-    </div>
-  );
-};
 
 // ─── Source toggle ────────────────────────────────────────────────────────────
 
@@ -107,8 +70,8 @@ const SourceToggle = ({ active, onChange }: { active: Source; onChange: (s: Sour
     <div
       className="flex items-center gap-0.5 p-1 rounded-xl"
       style={{
-        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(83,74,183,0.07)",
-        border: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
+        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)",
+        border: isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.07)",
       }}
     >
       {(["free", "spotify"] as Source[]).map((src) => {
@@ -122,9 +85,9 @@ const SourceToggle = ({ active, onChange }: { active: Source; onChange: (s: Sour
               background: isActive ? (isDark ? "rgba(124,111,247,0.22)" : "#fff") : "transparent",
               color: isActive
                 ? (src === "spotify" ? "#1DB954" : isDark ? "#c4b5fd" : "#534AB7")
-                : (isDark ? "rgba(148,163,184,0.75)" : "rgba(83,74,183,0.55)"),
-              boxShadow: isActive && !isDark ? "0 1px 6px rgba(83,74,183,0.12)" : undefined,
-              border: isActive ? (isDark ? "1px solid rgba(124,111,247,0.25)" : "1px solid rgba(83,74,183,0.15)") : "1px solid transparent",
+                : (isDark ? "rgba(148,163,184,0.75)" : "rgba(0,0,0,0.45)"),
+              boxShadow: isActive && !isDark ? "0 1px 4px rgba(0,0,0,0.08)" : undefined,
+              border: isActive ? (isDark ? "1px solid rgba(124,111,247,0.25)" : "1px solid rgba(0,0,0,0.08)") : "1px solid transparent",
             }}
           >
             {src === "free" ? (
@@ -152,7 +115,7 @@ const FreePlayer = () => {
   const isDark = theme === "dark";
 
   const { ready, error, playerState, pause, resume, nextTrack, prevTrack, seek, setVolume, playPlaylist } =
-    useYouTubePlayer();
+    useYouTubePlayback();
 
   useEffect(() => {
     fetch("/api/music/curated", { credentials: "include" })
@@ -190,24 +153,57 @@ const FreePlayer = () => {
   const thumb      = ytThumb(playerState?.videoId ?? null);
   const activeName = playlists.find(p => p.youtube_playlist_id === activeId)?.name ?? null;
 
-  const cardStyle: React.CSSProperties = {
-    background:     isDark ? "rgba(26,24,46,0.65)" : "rgba(255,255,255,0.80)",
-    border:         isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
-    backdropFilter: "blur(20px)",
-    borderRadius:   "1.25rem",
+  const displayTitle =
+    playerState?.title || activeName || (ready ? "Nothing playing" : "Loading player…");
+  const displayArtist =
+    !ready
+      ? "Preparing playback…"
+      : playerState?.author
+        ? playerState.author
+        : !playerState?.title && !activeName
+          ? "Pick a playlist or tap shuffle"
+          : activeName
+            ? "Tap play to start"
+            : null;
+
+  const [playlistSearch, setPlaylistSearch] = useState("");
+  const filteredPlaylists = useMemo(() => {
+    const q = playlistSearch.trim().toLowerCase();
+    if (!q) return playlists;
+    return playlists.filter(
+      (pl) =>
+        pl.name.toLowerCase().includes(q) ||
+        (pl.description?.toLowerCase().includes(q) ?? false)
+    );
+  }, [playlists, playlistSearch]);
+
+  /** FocusNest “Free” hub — violet ambient; same dark chrome in light app theme. */
+  const freeFocusShell: React.CSSProperties = {
+    background: isDark
+      ? `radial-gradient(ellipse 120% 90% at 50% -28%, hsl(var(--primary) / 0.20), transparent 54%),
+         radial-gradient(ellipse 52% 44% at 94% 100%, hsl(var(--primary) / 0.11), transparent 50%),
+         linear-gradient(168deg, #100c1a 0%, #080612 42%, #040308 100%)`
+      : `radial-gradient(ellipse 120% 90% at 50% -28%, hsl(var(--primary) / 0.14), transparent 54%),
+         linear-gradient(168deg, #14101f 0%, #0a0812 100%)`,
+    border: `1px solid hsl(var(--primary) / 0.14)`,
+    boxShadow: isDark
+      ? `0 24px 80px -20px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.4) inset`
+      : `0 20px 60px -24px rgba(0,0,0,0.2), 0 0 0 1px rgba(255,255,255,0.06) inset`,
+    backdropFilter: "blur(28px)",
+    borderRadius: "1.25rem",
   };
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
 
-      {/* Ambient background */}
+      {/* Ambient background — scoped to main column, not sidebar/navbar */}
       <AnimatePresence>
         {thumb && (
           <motion.div
             key={playerState?.videoId}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             transition={{ duration: 1.5 }}
-            className="fixed inset-0 pointer-events-none"
+            className="pointer-events-none absolute inset-0"
             style={{ zIndex: 0 }}
           >
             <div
@@ -225,247 +221,219 @@ const FreePlayer = () => {
         )}
       </AnimatePresence>
 
-      {/* ── Now playing + controls ── */}
-      <div className="flex gap-5 items-start flex-col sm:flex-row">
+      <div
+        className="relative z-[1] flex min-h-0 w-full flex-1 flex-col overflow-hidden text-white"
+        style={freeFocusShell}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.45]"
+          style={{
+            background:
+              "radial-gradient(circle at 18% 108%, hsl(var(--primary) / 0.14), transparent 52%)",
+          }}
+        />
 
-        {/* Artwork + controls */}
-        <div className="flex-1 overflow-hidden flex flex-col" style={{ ...cardStyle, minHeight: 380 }}>
-
-          {/* Artwork */}
-          <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
-            <AnimatePresence mode="wait">
-              {thumb ? (
-                <motion.img
-                  key={playerState?.videoId}
-                  src={thumb} alt=""
-                  initial={{ opacity: 0, scale: 1.04 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.6 }}
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-              ) : (
-                <motion.div
-                  key="placeholder"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                  className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-                  style={{ background: "hsl(var(--primary) / 0.04)" }}
-                >
-                  {!ready ? (
-                    <>
-                      <Loader2 className="w-7 h-7 animate-spin" style={{ color: "hsl(var(--primary) / 0.4)" }} />
-                      <p className="text-xs text-muted-foreground/65">Loading player…</p>
-                    </>
-                  ) : error ? (
-                    <>
-                      <AlertCircle className="w-7 h-7 text-destructive/50" />
-                      <p className="text-xs text-destructive/60 max-w-[200px] text-center">{error}</p>
-                    </>
-                  ) : (
-                    <>
-                      <div
-                        className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                        style={{ background: "hsl(var(--primary) / 0.08)", border: "1px solid hsl(var(--primary) / 0.12)" }}
-                      >
-                        <Music2 className="w-6 h-6" style={{ color: "hsl(var(--primary) / 0.35)" }} />
-                      </div>
-                      <p className="text-xs text-muted-foreground/65 tracking-wide">
-                        {playlists.length ? "Pick a playlist to begin" : "No playlists yet"}
-                      </p>
-                    </>
-                  )}
-                </motion.div>
+        <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            {/* Hero: large artwork */}
+            <div
+              className={cn(
+                "flex min-h-0 min-w-0 flex-1 flex-col",
+                "border-b border-primary/12 lg:border-b-0 lg:border-r lg:border-primary/12",
+                "bg-[linear-gradient(180deg,rgba(10,10,12,0.92)_0%,rgba(6,6,8,0.96)_100%)]",
+                "p-3 sm:p-4 lg:p-5"
               )}
-            </AnimatePresence>
-
-            {isPlaying && (
-              <div className="absolute top-3 right-3 flex items-end gap-[2px] h-5 px-2 py-1.5 rounded-lg"
-                style={{ background: "rgba(0,0,0,0.52)", backdropFilter: "blur(8px)" }}>
-                <EqBars playing={isPlaying} color="white" />
-              </div>
-            )}
-          </div>
-
-          {/* Track info + controls */}
-          <div className="flex flex-col p-5 gap-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <AnimatePresence mode="wait">
-                  <motion.p
-                    key={playerState?.title || "idle"}
-                    initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.3 }}
-                    className="text-sm font-semibold text-foreground truncate leading-tight"
-                  >
-                    {playerState?.title || activeName || "Nothing playing"}
-                  </motion.p>
-                </AnimatePresence>
-                {playerState?.author && (
-                  <p className="text-[11px] text-muted-foreground/65 truncate mt-0.5">{playerState.author}</p>
-                )}
-              </div>
+            >
+              <MusicWebHero
+                artworkUrl={thumb}
+                isPlaying={isPlaying}
+                accent="violet"
+              />
             </div>
 
-            {playerState
-              ? <SeekBar current={playerState.currentTime} duration={playerState.duration} onSeek={seek} />
-              : <div className="w-full h-1.5 rounded-full" style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)" }} />
-            }
-
-            {/* Controls row */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <motion.button
-                  whileTap={{ scale: 0.92 }}
-                  onClick={prevTrack}
-                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-                  style={{ color: "hsl(var(--foreground) / 0.45)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.9)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.45)")}
-                >
-                  <SkipBack className="w-4 h-4" />
-                </motion.button>
-
-                <motion.button
-                  whileTap={{ scale: 0.92 }}
-                  onClick={isPlaying ? pause : resume}
-                  className="w-12 h-12 rounded-full flex items-center justify-center text-white transition-all"
-                  style={{
-                    background: "hsl(var(--primary))",
-                    boxShadow: "0 4px 24px hsl(var(--primary) / 0.45)",
-                  }}
-                >
-                  {isPlaying
-                    ? <Pause className="w-5 h-5 fill-white" />
-                    : <Play  className="w-5 h-5 fill-white ml-0.5" />}
-                </motion.button>
-
-                <motion.button
-                  whileTap={{ scale: 0.92 }}
-                  onClick={nextTrack}
-                  className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-                  style={{ color: "hsl(var(--foreground) / 0.45)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.9)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.45)")}
-                >
-                  <SkipForward className="w-4 h-4" />
-                </motion.button>
+            {/* Queue column: search + tabs + list */}
+            <div
+              className={cn(
+                "relative z-[1] flex min-h-0 w-full max-w-full flex-col overflow-hidden",
+                "md:w-[min(100%,380px)] md:shrink-0 xl:w-[min(100%,440px)]",
+                "bg-[linear-gradient(180deg,rgba(12,12,14,0.94)_0%,rgba(4,4,6,0.98)_100%)]"
+              )}
+            >
+              <div className="shrink-0 border-b border-white/10 px-4 pt-3">
+                <div className="mb-3 flex items-center gap-2">
+                  <YouTubeMark size={16} />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                    Free listening
+                  </span>
+                </div>
+                <div className="-mb-px flex gap-6">
+                  <span className="border-b-2 border-primary pb-2.5 text-[13px] font-semibold text-white">
+                    Playlists
+                  </span>
+                </div>
               </div>
 
-              {/* Volume */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={toggleMute}
-                  className="transition-colors"
-                  style={{ color: "hsl(var(--foreground) / 0.40)" }}
-                  onMouseEnter={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.8)")}
-                  onMouseLeave={e => (e.currentTarget.style.color = "hsl(var(--foreground) / 0.40)")}
-                >
-                  {muted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                </button>
-                <div
-                  className="relative w-20 h-1.5 rounded-full cursor-pointer group"
-                  style={{ background: isDark ? "rgba(255,255,255,0.10)" : "rgba(83,74,183,0.12)" }}
-                  onClick={e => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    handleVolume(Math.round(Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * 100));
-                  }}
-                >
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${muted ? 0 : volume}%`, background: "hsl(var(--primary) / 0.7)" }}
+              <div className="shrink-0 px-4 py-3">
+                <label className="sr-only" htmlFor="youtube-playlist-search">
+                  Search playlists
+                </label>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35"
+                    aria-hidden
+                  />
+                  <input
+                    id="youtube-playlist-search"
+                    type="search"
+                    autoComplete="off"
+                    placeholder="Search artists, playlists…"
+                    value={playlistSearch}
+                    onChange={(e) => setPlaylistSearch(e.target.value)}
+                    className={cn(
+                      "w-full rounded-full border border-white/[0.08] bg-white/[0.06] py-2.5 pl-10 pr-4",
+                      "text-[13px] text-white placeholder:text-white/35",
+                      "outline-none transition-shadow focus:border-primary/35 focus:ring-2 focus:ring-primary/20"
+                    )}
                   />
                 </div>
               </div>
+
+              <div className="relative min-h-0 flex-1 w-full">
+                <div className="max-h-full space-y-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-0 [scrollbar-gutter:stable]">
+                  {isLoading ? (
+                    <div className="flex justify-center py-12">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary/45" />
+                    </div>
+                  ) : playlists.length === 0 ? (
+                    <p className="px-3 py-10 text-center text-[12px] leading-relaxed text-white/40">
+                      No playlists yet.
+                    </p>
+                  ) : filteredPlaylists.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-[12px] leading-relaxed text-white/40">
+                      No playlists match “{playlistSearch.trim()}”.
+                    </p>
+                  ) : (
+                    filteredPlaylists.map((pl, idx) => {
+                      const active = activeId === pl.youtube_playlist_id;
+                      return (
+                        <motion.button
+                          key={pl.id}
+                          type="button"
+                          whileTap={{ scale: 0.99 }}
+                          onClick={() => handlePlay(pl.youtube_playlist_id)}
+                          aria-pressed={active}
+                          className={cn(
+                            "group grid w-full grid-cols-[2rem_40px_1fr_auto] items-center gap-2 rounded-xl border px-2 py-2 text-left transition-colors",
+                            "border-white/[0.06] bg-white/[0.03] hover:border-white/12 hover:bg-white/[0.06]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45",
+                            active && "border-primary/40 bg-primary/[0.12] ring-1 ring-primary/20"
+                          )}
+                        >
+                          <span className="text-center text-[11px] tabular-nums text-white/35">
+                            {idx + 1}
+                          </span>
+                          <div
+                            className="relative h-10 w-10 shrink-0 overflow-hidden rounded-md"
+                            style={
+                              pl.image_url
+                                ? undefined
+                                : {
+                                    background:
+                                      "linear-gradient(145deg, hsl(var(--primary) / 0.35), rgba(32, 24, 56, 0.92))",
+                                  }
+                            }
+                          >
+                            {pl.image_url ? (
+                              <img src={pl.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-white/85">
+                                <Music2 className="h-4 w-4" aria-hidden />
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] font-semibold text-white">{pl.name}</p>
+                            <p className="truncate text-[10px] text-white/40">
+                              {freePlaylistRowSubtitle(pl.description)}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "shrink-0 pr-1 text-[9px] font-semibold uppercase tracking-wider",
+                              active ? "text-primary-bright" : "text-white/30 group-hover:text-white/50"
+                            )}
+                          >
+                            {active ? "▶" : " "}
+                          </span>
+                        </motion.button>
+                      );
+                    })
+                  )}
+                </div>
+                <div
+                  className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-6 bg-gradient-to-b from-[#0a0a0c] to-transparent"
+                  aria-hidden
+                />
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-6 bg-gradient-to-t from-[#0a0a0c] to-transparent"
+                  aria-hidden
+                />
+              </div>
             </div>
           </div>
+
+          <MusicWebBottomBar
+            artworkUrl={thumb}
+            title={displayTitle}
+            subtitle={displayArtist ?? "Pick a playlist or tap shuffle"}
+            isPlaying={isPlaying}
+            onTogglePlay={playerState ? (isPlaying ? pause : resume) : handleRandom}
+            onPrev={playerState ? prevTrack : undefined}
+            onNext={playerState ? nextTrack : undefined}
+            currentSec={playerState?.currentTime ?? 0}
+            durationSec={playerState?.duration ?? 0}
+            onSeek={seek}
+            seekDisabled={!playerState}
+            volume={volume}
+            muted={muted}
+            onVolume={handleVolume}
+            onToggleMute={toggleMute}
+            accent="violet"
+            showShuffle
+            onShuffle={handleRandom}
+            shuffleDisabled={!ready || !playlists.length}
+            shuffleTitle={
+              !ready
+                ? "Player is still loading"
+                : !playlists.length
+                  ? "No playlists available"
+                  : "Shuffle a random playlist"
+            }
+          />
         </div>
 
-        {/* ── Playlist sidebar ── */}
         <div
-          className="w-full sm:w-56 overflow-hidden flex flex-col shrink-0"
-          style={{ ...cardStyle, maxHeight: 440 }}
+          className="relative z-[1] shrink-0 border-t border-white/[0.06] px-4 py-2.5 text-center"
+          style={{ background: "rgba(0,0,0,0.35)" }}
         >
-          <div
-            className="flex items-center justify-between px-4 py-3 shrink-0"
-            style={{ borderBottom: isDark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(83,74,183,0.10)" }}
-          >
-            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
-              Playlists
-            </p>
-            <motion.button
-              whileTap={{ scale: 0.92 }}
-              onClick={handleRandom}
-              disabled={!ready || !playlists.length}
-              className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg transition-all disabled:opacity-40"
-              style={{
-                background: "hsl(var(--primary) / 0.08)",
-                color: "hsl(var(--primary))",
-              }}
-            >
-              <Shuffle className="w-2.5 h-2.5" />
-              Shuffle
-            </motion.button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto py-1.5 px-1.5 flex flex-col gap-0.5">
-            {isLoading ? (
-              <div className="flex items-center justify-center py-10">
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/40" />
-              </div>
-            ) : playlists.length === 0 ? (
-              <p className="text-[10px] text-muted-foreground/65 text-center py-10 px-3">No playlists yet.</p>
-            ) : (
-              playlists.map(pl => {
-                const active = activeId === pl.youtube_playlist_id;
-                return (
-                  <motion.button
-                    key={pl.id}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => handlePlay(pl.youtube_playlist_id)}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all"
-                    style={{
-                      background: active ? "hsl(var(--primary) / 0.10)" : "transparent",
-                      border: active ? "1px solid hsl(var(--primary) / 0.20)" : "1px solid transparent",
-                    }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = "hsl(var(--foreground) / 0.04)"; }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <div
-                      className="w-9 h-9 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
-                      style={{ background: "hsl(var(--primary) / 0.08)" }}
-                    >
-                      {pl.image_url
-                        ? <img src={pl.image_url} alt="" className="w-full h-full object-cover" />
-                        : <Music2 className="w-3.5 h-3.5" style={{ color: "hsl(var(--primary) / 0.45)" }} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate" style={{ color: active ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.85)" }}>
-                        {pl.name}
-                      </p>
-                      {pl.description && (
-                        <p className="text-[9px] truncate mt-0.5 text-muted-foreground/55">{pl.description}</p>
-                      )}
-                    </div>
-                    {active && isPlaying && <EqBars playing />}
-                  </motion.button>
-                );
-              })
-            )}
-          </div>
+          <p className="text-[9px] font-medium uppercase tracking-[0.2em] text-white/40">
+            Powered by YouTube · Free · No account required
+          </p>
         </div>
       </div>
-
-      <p className="text-center text-[9px] text-muted-foreground/45 tracking-widest uppercase">
-        Powered by YouTube · Free · No account required
-      </p>
     </div>
   );
 };
 
 // ─── Spotify player view (when connected + Premium) ───────────────────────────
 
+const SPOTIFY_CARD_FALLBACK_ART =
+  "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=400&h=400&q=80";
+
 const SpotifyPlayerView = () => {
-  const { playerState, ready, error, pause, resume, nextTrack, prevTrack, seek, playPlaylist } = useSpotifyPlayback();
+  const { playerState, ready, error, pause, resume, nextTrack, prevTrack, seek, setVolume, playPlaylist } =
+    useSpotifyPlayback();
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -473,6 +441,18 @@ const SpotifyPlayerView = () => {
   const [loadingCurated, setLoadingCurated] = useState(true);
 
   const [playingUri, setPlayingUri] = useState<string | null>(null);
+  const [uiVolume, setUiVolume] = useState(0.7);
+  const [playlistSearch, setPlaylistSearch] = useState("");
+
+  const filteredCurated = useMemo(() => {
+    const q = playlistSearch.trim().toLowerCase();
+    if (!q) return curated;
+    return curated.filter(
+      (pl) =>
+        pl.name.toLowerCase().includes(q) ||
+        (pl.description?.toLowerCase().includes(q) ?? false)
+    );
+  }, [curated, playlistSearch]);
 
   useEffect(() => {
     fetch("/api/music/curated?source=spotify", { credentials: "include" })
@@ -508,11 +488,59 @@ const SpotifyPlayerView = () => {
   const pos    = playerState ? playerState.position / 1000 : 0;
   const dur    = playerState ? playerState.duration / 1000 : 0;
 
+  const spotifyPlayback = React.useMemo(() => {
+    const durSec = Math.max(dur, 1);
+    const title = track?.name ?? (curated[0]?.name ?? "Nothing playing");
+    const artists =
+      track?.artists?.map((a: { name: string }) => a.name).join(", ") ??
+      (curated[0]?.description || "Pick a playlist to play");
+    const albumArt = art ?? SPOTIFY_CARD_FALLBACK_ART;
+    return {
+      isPlaying: isPlay,
+      positionSec: pos,
+      durationSec: durSec,
+      title,
+      artists,
+      albumArt,
+      onTogglePlay: () => {
+        if (isPlay) void pause();
+        else void resume();
+      },
+      onPrev: () => void prevTrack(),
+      onNext: () => void nextTrack(),
+    };
+  }, [
+    isPlay,
+    pos,
+    dur,
+    track,
+    art,
+    curated,
+    playerState?.duration,
+    pause,
+    resume,
+    prevTrack,
+    nextTrack,
+  ]);
+
   const cardStyle: React.CSSProperties = {
     background:     isDark ? "rgba(26,24,46,0.65)" : "rgba(255,255,255,0.80)",
-    border:         isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(83,74,183,0.12)",
+    border:         isDark ? "1px solid rgba(255,255,255,0.08)" : "1px solid rgba(0,0,0,0.07)",
     backdropFilter: "blur(20px)",
     borderRadius:   "1.25rem",
+  };
+
+  /** Single shell for player + playlist: Spotify black / green (not purple app chrome). */
+  const spotifyUnifiedShell: React.CSSProperties = {
+    background: isDark
+      ? `linear-gradient(165deg, #0c0f0e 0%, #060807 38%, #030403 100%)`
+      : `linear-gradient(165deg, #121714 0%, #0a0d0b 100%)`,
+    border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: isDark
+      ? "0 24px 80px -20px rgba(0,0,0,0.55), inset 0 1px 0 rgba(29,185,84,0.06)"
+      : "0 20px 60px -24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(29,185,84,0.08)",
+    backdropFilter: "blur(20px)",
+    borderRadius: "1.25rem",
   };
 
   if (!ready && !error) {
@@ -583,199 +611,177 @@ const SpotifyPlayerView = () => {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col gap-5"
+      className="flex h-full min-h-0 flex-1 flex-col"
     >
-      {/* Connected badge + hint */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div
+        className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden text-white"
+        style={spotifyUnifiedShell}
+      >
         <div
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl w-fit"
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.55]"
           style={{
-            background: isDark ? "rgba(29,185,84,0.08)" : "rgba(29,185,84,0.06)",
-            border: "1px solid rgba(29,185,84,0.18)",
+            background:
+              "radial-gradient(ellipse 80% 60% at 20% 0%, rgba(29, 185, 84, 0.07), transparent 50%), radial-gradient(ellipse 70% 50% at 100% 100%, rgba(29, 185, 84, 0.05), transparent 45%)",
           }}
+        />
+        <div className="relative z-[1] flex min-h-0 flex-1 flex-col md:flex-row md:items-stretch">
+        <div
+          className={cn(
+            "relative z-[1] flex min-h-0 w-full shrink-0 flex-col p-3 sm:p-4 md:p-5",
+            "md:h-full md:min-h-0 md:flex-1",
+            "border-b border-white/[0.06] md:border-b-0 md:border-r md:border-white/[0.06]",
+            "bg-black/20"
+          )}
         >
-          <div className="w-2 h-2 rounded-full bg-[#1DB954] animate-pulse shrink-0" />
-          <span className="text-[12px] font-semibold" style={{ color: "#1DB954" }}>Spotify connected</span>
+          <MusicWebHero
+            artworkUrl={spotifyPlayback.albumArt}
+            isPlaying={spotifyPlayback.isPlaying}
+            accent="spotify"
+          />
         </div>
-        <p className="text-[11px] text-muted-foreground max-w-md leading-relaxed">
-          Focus-only mode: you can start playlists curated for concentration and binaural-style listening.
-          Keep Spotify or this tab active and choose <strong className="text-foreground/80">FocusNest</strong> as the playback device when prompted.
-        </p>
-      </div>
 
-      {/* Compact now-playing row */}
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="flex-1 flex gap-4 p-4 md:p-5 items-stretch" style={cardStyle}>
-          {/* Cover */}
-          <div
-            className="relative w-[120px] h-[120px] md:w-[140px] md:h-[140px] shrink-0 rounded-xl overflow-hidden"
-            style={{ background: "rgba(29,185,84,0.06)" }}
-          >
-            <AnimatePresence mode="wait">
-              {art ? (
-                <motion.img
-                  key={track?.id}
-                  src={art}
-                  alt=""
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-2">
-                  <SpotifyLogo size={36} className="text-[#1DB954]" />
-                  <p className="text-[10px] text-center text-muted-foreground leading-tight px-1">
-                    Pick a focus playlist below
+        <div
+          className={cn(
+            "relative z-[1] flex min-h-0 w-full flex-1 flex-col md:h-full md:w-[min(100%,400px)] md:flex-none md:shrink-0 lg:w-[min(100%,420px)]",
+            "border-t border-white/[0.05] md:border-t-0 bg-black/25"
+          )}
+        >
+          {/* Single panel header: status + search (no duplicate page chrome) */}
+          <div className="shrink-0 space-y-3 border-b border-white/[0.06] px-4 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#1DB954] opacity-40" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-[#1DB954]" />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[12px] font-semibold text-white">Playlists</p>
+                  <p className="truncate text-[10px] text-white/40" title="Pick FocusNest in Spotify Connect when asked">
+                    Spotify · select device below if audio is quiet
                   </p>
                 </div>
-              )}
-            </AnimatePresence>
-            {isPlay && (
-              <div
-                className="absolute top-2 right-2 flex items-end gap-[2px] h-4 px-1.5 py-1 rounded-md"
-                style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}
-              >
-                <EqBars playing color="#1DB954" />
               </div>
-            )}
-          </div>
-
-          <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">
-            <div className="min-w-0">
-              <AnimatePresence mode="wait">
-                <motion.p
-                  key={track?.id ?? "idle"}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="text-base font-semibold text-foreground truncate"
-                >
-                  {track?.name ?? "Nothing playing"}
-                </motion.p>
-              </AnimatePresence>
-              {track?.artists?.[0] ? (
-                <p className="text-xs text-muted-foreground truncate mt-1">
-                  {track.artists.map((a: { name: string }) => a.name).join(", ")}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground/70 mt-1">
-                  Select a curated focus playlist to start
-                </p>
-              )}
+              <SpotifyLogo size={16} className="shrink-0 text-[#1ED760]" />
             </div>
-
-            {playerState ? (
-              <SeekBar current={pos} duration={dur} onSeek={(s) => seek(s * 1000)} />
-            ) : (
-              <div
-                className="w-full h-1.5 rounded-full"
-                style={{ background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)" }}
+            <label className="sr-only" htmlFor="spotify-playlist-search">
+              Search playlists
+            </label>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30"
+                aria-hidden
               />
-            )}
-
-            <div className="flex items-center gap-2">
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={prevTrack}
-                className="w-9 h-9 rounded-full flex items-center justify-center text-foreground/50 hover:text-foreground/90 transition-colors"
-                type="button"
-              >
-                <SkipBack className="w-4 h-4" />
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={isPlay ? pause : resume}
-                className="w-11 h-11 rounded-full flex items-center justify-center text-white"
-                style={{ background: "#1DB954", boxShadow: "0 3px 16px rgba(29,185,84,0.35)" }}
-                type="button"
-              >
-                {isPlay ? (
-                  <Pause className="w-5 h-5 fill-white" />
-                ) : (
-                  <Play className="w-5 h-5 fill-white ml-0.5" />
+              <input
+                id="spotify-playlist-search"
+                type="search"
+                autoComplete="off"
+                placeholder="Search playlists…"
+                value={playlistSearch}
+                onChange={(e) => setPlaylistSearch(e.target.value)}
+                className={cn(
+                  "w-full rounded-full border border-white/[0.08] bg-white/[0.05] py-2 pl-9 pr-3",
+                  "text-[12px] text-white placeholder:text-white/30",
+                  "outline-none transition-shadow focus:border-[#1DB954]/40 focus:ring-1 focus:ring-[#1DB954]/30"
                 )}
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.92 }}
-                onClick={nextTrack}
-                className="w-9 h-9 rounded-full flex items-center justify-center text-foreground/50 hover:text-foreground/90 transition-colors"
-                type="button"
-              >
-                <SkipForward className="w-4 h-4" />
-              </motion.button>
+              />
             </div>
           </div>
-        </div>
 
-        {/* Focus & binaural — single list */}
-        <div className="w-full md:w-[min(100%,320px)] shrink-0 rounded-2xl overflow-hidden flex flex-col max-h-[min(60vh,420px)]" style={cardStyle}>
-          <div
-            className="flex items-center justify-between px-4 py-3 shrink-0"
-            style={{
-              borderBottom: isDark ? "1px solid rgba(255,255,255,0.07)" : "1px solid rgba(83,74,183,0.10)",
-            }}
-          >
-            <div>
-              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/65">
-                Focus and binaural
-              </p>
-              <p className="text-[10px] text-muted-foreground/55 mt-0.5">Curated Spotify playlists</p>
-            </div>
-            <SpotifyLogo size={14} className="text-[#1DB954] opacity-70" />
-          </div>
-          <div className="flex-1 overflow-y-auto py-1 min-h-[120px]">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-2 pb-3 [scrollbar-gutter:stable]">
             {loadingCurated ? (
               <div className="flex items-center justify-center py-10">
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/40" />
+                <Loader2 className="h-4 w-4 animate-spin text-[#1DB954]/50" />
               </div>
             ) : curated.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground/65 text-center py-8 px-4 leading-relaxed">
-                No Spotify playlists configured yet. Ask an admin to add focus playlists in the catalog.
+              <p className="px-2 py-8 text-center text-[11px] leading-relaxed text-white/45">
+                No playlists in the catalog yet.
+              </p>
+            ) : filteredCurated.length === 0 ? (
+              <p className="px-2 py-8 text-center text-[11px] leading-relaxed text-white/45">
+                No match for “{playlistSearch.trim()}”.
               </p>
             ) : (
-              curated.map((pl) => {
+              filteredCurated.map((pl, idx) => {
                 const uri = `spotify:playlist:${pl.playlist_id}`;
                 const isActive = playingUri === uri;
                 return (
                   <motion.button
                     key={pl.id}
                     type="button"
-                    whileTap={{ scale: 0.98 }}
+                    whileTap={{ scale: 0.99 }}
                     onClick={() => handlePlay(uri)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors"
-                    style={{
-                      background: isActive ? "rgba(29,185,84,0.10)" : "transparent",
-                      border: "none",
-                    }}
+                    aria-pressed={isActive}
+                    className={cn(
+                      "group grid w-full grid-cols-[1.75rem_36px_1fr_auto] items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors",
+                      "border-white/[0.06] bg-white/[0.03] hover:border-white/10 hover:bg-white/[0.06]",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1DB954]/35",
+                      isActive && "border-[#1DB954]/40 bg-[#1DB954]/10 ring-1 ring-[#1DB954]/20"
+                    )}
                   >
-                    <div
-                      className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center"
-                      style={{
-                        background: "rgba(29,185,84,0.10)",
-                        border: isActive ? "1px solid rgba(29,185,84,0.35)" : "1px solid rgba(29,185,84,0.12)",
-                      }}
-                    >
-                      <SpotifyLogo size={14} className="text-[#1DB954]" />
+                    <span className="text-center text-[10px] tabular-nums text-white/30">{idx + 1}</span>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-black/40">
+                      <SpotifyLogo size={12} className="text-[#1ED760]" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className="text-[12px] font-medium truncate"
-                        style={{ color: isActive ? "#1DB954" : "hsl(var(--foreground) / 0.88)" }}
-                      >
-                        {pl.name}
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-medium text-white">{pl.name}</p>
+                      <p className="truncate text-[10px] text-white/38">
+                        {pl.description ?? "Spotify playlist"}
                       </p>
-                      {pl.description ? (
-                        <p className="text-[10px] text-muted-foreground/55 truncate mt-0.5">{pl.description}</p>
-                      ) : null}
                     </div>
-                    {isActive && <EqBars playing={!playerState?.paused} color="#1DB954" />}
+                    <span
+                      className={cn(
+                        "pr-0.5 text-[9px] font-semibold uppercase tracking-wider",
+                        isActive ? "text-[#1ED760]" : "text-white/28 group-hover:text-white/45"
+                      )}
+                    >
+                      {isActive ? "▶" : ""}
+                    </span>
                   </motion.button>
                 );
               })
             )}
+            </div>
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-6 bg-gradient-to-b from-[#080908] to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[2] h-6 bg-gradient-to-t from-[#080908] to-transparent" />
           </div>
         </div>
+        </div>
+
+        <MusicWebBottomBar
+          artworkUrl={spotifyPlayback.albumArt}
+          title={spotifyPlayback.title}
+          subtitle={spotifyPlayback.artists}
+          isPlaying={spotifyPlayback.isPlaying}
+          onTogglePlay={spotifyPlayback.onTogglePlay}
+          onPrev={spotifyPlayback.onPrev}
+          onNext={spotifyPlayback.onNext}
+          currentSec={spotifyPlayback.positionSec}
+          durationSec={spotifyPlayback.durationSec}
+          onSeek={(sec) => {
+            if (!playerState?.duration) return;
+            void seek(sec * 1000);
+          }}
+          seekDisabled={!playerState}
+          volume={Math.round(uiVolume * 100)}
+          muted={uiVolume === 0}
+          onVolume={(v) => {
+            const n = v / 100;
+            setUiVolume(n);
+            void setVolume(n);
+          }}
+          onToggleMute={() => {
+            if (uiVolume === 0) {
+              setUiVolume(0.7);
+              void setVolume(0.7);
+            } else {
+              setUiVolume(0);
+              void setVolume(0);
+            }
+          }}
+          accent="spotify"
+        />
       </div>
     </motion.div>
   );
@@ -805,7 +811,7 @@ const SpotifyConnect = () => {
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col items-center gap-6 py-16 text-center px-4"
+      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-4 py-12 text-center sm:px-6"
     >
       {/* Logo orb */}
       <div className="relative">
@@ -889,7 +895,7 @@ const SpotifyTab = () => {
 
   if (connected === null) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center px-4">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/40" />
       </div>
     );
@@ -902,75 +908,155 @@ const SpotifyTab = () => {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 const MusicPage = () => {
-  const [source, setSource] = useState<Source>("free");
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
+  const { user } = useAuth();
+  const [source, setSource] = useState<Source>(() => {
+    try {
+      const raw = window.localStorage.getItem(MUSIC_SOURCE_STORAGE_KEY);
+      return raw === "spotify" || raw === "free" ? raw : "free";
+    } catch {
+      return "free";
+    }
+  });
+  const [showConsentModal, setShowConsentModal] = useState(false);
 
-  // Handle OAuth redirect params (?connected=true or ?error=...)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("connected") === "true") {
-      setSource("spotify");
-      toast.success("Spotify connected! Premium playback is ready.");
-      window.history.replaceState({}, "", "/spotify");
-    } else if (params.get("error")) {
-      const err = params.get("error");
-      toast.error(err === "access_denied"
-        ? "Spotify connection cancelled."
-        : `Spotify connection failed: ${err}`);
-      window.history.replaceState({}, "", "/spotify");
+  const setSourcePersisted = useCallback((next: Source) => {
+    setSource(next);
+    try {
+      window.localStorage.setItem(MUSIC_SOURCE_STORAGE_KEY, next);
+      notifyMusicPageSourceChanged();
+    } catch {
+      // ignore storage errors (private mode, disabled, etc.)
     }
   }, []);
 
+  const handleSourceChange = useCallback((next: Source) => {
+    if (next === "spotify" && !user?.is_consented_spotify) {
+      setShowConsentModal(true);
+      return;
+    }
+    setSourcePersisted(next);
+  }, [user, setSourcePersisted]);
+
+  // OAuth errors (incl. consent_required from callback if user lacked consent)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (!err) return;
+    window.history.replaceState({}, "", "/spotify");
+    if (err === "consent_required") {
+      toast.error(
+        "Enable Spotify integration in Settings or use the prompt here before connecting your account."
+      );
+      return;
+    }
+    if (err === "access_denied") {
+      toast.error("Spotify connection cancelled.");
+      return;
+    }
+    toast.error(`Spotify connection failed: ${err}`);
+  }, []);
+
+  // OAuth success — only switch to Spotify tab if the user has consented
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("connected") !== "true") return;
+    window.history.replaceState({}, "", "/spotify");
+    if (user.is_consented_spotify) {
+      setSourcePersisted("spotify");
+      toast.success("Spotify connected! Premium playback is ready.");
+    } else {
+      setSourcePersisted("free");
+      setShowConsentModal(true);
+      toast.info("Enable Spotify integration to use Premium playback.");
+    }
+  }, [user, setSourcePersisted]);
+
+  // localStorage may still say "spotify" after consent was revoked
+  useEffect(() => {
+    if (user && !user.is_consented_spotify && source === "spotify") {
+      setSourcePersisted("free");
+    }
+  }, [user, source, setSourcePersisted]);
+
   return (
-    <div className="relative max-w-5xl mx-auto pb-10">
-      <div className="relative z-10 flex flex-col gap-6">
+    <>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Centered column: breathing room on wide screens */}
+      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 pb-6 pt-3 sm:px-6 sm:pb-8 sm:pt-4 md:px-8 md:pb-10">
 
-        {/* ── Header ── */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="flex items-center justify-between pt-1"
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{
-                background: source === "spotify" ? "rgba(29,185,84,0.12)" : "hsl(var(--primary) / 0.12)",
-                border: source === "spotify" ? "1px solid rgba(29,185,84,0.20)" : "1px solid hsl(var(--primary) / 0.18)",
-              }}
-            >
-              {source === "spotify"
-                ? <SpotifyLogo size={18} className="text-[#1DB954]" />
-                : <Music2 className="w-4.5 h-4.5" style={{ color: "hsl(var(--primary))", width: 18, height: 18 }} />}
+      {/* ── Compact page header: Free / Spotify (shadcn Card) ── */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="mb-4 w-full shrink-0 sm:mb-5"
+      >
+        <Card className="!rounded-[1.25rem]">
+          <div className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2 sm:px-4 sm:py-2.5">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+              {source === "spotify" ? (
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9"
+                  style={{
+                    background: "rgba(29,185,84,0.12)",
+                    border: "1px solid rgba(29,185,84,0.22)",
+                  }}
+                >
+                  <SpotifyLogo size={16} className="text-[#1DB954]" />
+                </div>
+              ) : (
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9"
+                  style={{
+                    background: "hsl(var(--primary) / 0.12)",
+                    border: "1px solid hsl(var(--primary) / 0.18)",
+                  }}
+                >
+                  <Music2 className="h-4 w-4 sm:h-[17px] sm:w-[17px]" style={{ color: "hsl(var(--primary))" }} />
+                </div>
+              )}
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-bold tracking-tight text-foreground sm:text-lg">
+                  Focus Sounds
+                </h1>
+                <p className="truncate text-[10px] text-muted-foreground sm:text-[11px]">
+                  {source === "spotify"
+                    ? "Spotify · Premium · in-browser"
+                    : "Free · YouTube playlists · no account"}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-semibold text-foreground tracking-tight">Focus Sounds</h1>
-              <p className="text-[10px] text-muted-foreground/65 tracking-widest uppercase">
-                {source === "spotify" ? "Spotify Connect" : "Binaural · Deep Focus"}
-              </p>
-            </div>
+            <SourceToggle active={source} onChange={handleSourceChange} />
           </div>
+        </Card>
+      </motion.div>
 
-          <SourceToggle active={source} onChange={setSource} />
+      {/* ── Player card (centered with parent max-width) ── */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={source}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.25 }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          {source === "free" ? <FreePlayer /> : <SpotifyTab />}
         </motion.div>
-
-        {/* ── Content ── */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={source}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25 }}
-          >
-            {source === "free" ? <FreePlayer /> : <SpotifyTab />}
-          </motion.div>
-        </AnimatePresence>
+      </AnimatePresence>
 
       </div>
     </div>
+
+    {showConsentModal && (
+      <ConsentModal
+        feature="spotify"
+        onClose={() => setShowConsentModal(false)}
+        onGranted={() => setSourcePersisted("spotify")}
+      />
+    )}
+    </>
   );
 };
 

@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause, SkipForward, SkipBack, Music2, ListMusic, Shuffle } from "lucide-react";
 import { toast } from "sonner";
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer";
+import MusicPlayerCard from "@/components/ui/music-player-card";
 
 interface CuratedPlaylist {
   id: number;
@@ -183,89 +184,46 @@ const MiniMusicPlayer = ({ overlay = false }: Props) => {
   // ── Idle / full mode ──────────────────────────────────────────────────────
   return (
     <div className="mt-5">
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{
-          background: "hsl(var(--card))",
-          border: "1px solid hsl(var(--border) / 0.45)",
-        }}
-      >
-        {/* Header row */}
-        <div className="px-4 pt-3.5 pb-0 flex items-center gap-2 mb-2.5">
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-1">
           <Music2 className="w-3 h-3 text-muted-foreground/40" />
           <span className="text-[10px] text-muted-foreground/50 uppercase tracking-[0.14em] font-medium">
             focus music
           </span>
         </div>
 
-        {playerState ? (
-          <div className="px-4 pb-3.5 flex items-center gap-3">
-            {thumbUrl ? (
-              <img src={thumbUrl} alt="" className="w-9 h-9 rounded-xl shrink-0 object-cover" style={{ opacity: 0.88 }} />
-            ) : (
-              <div
-                className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center"
-                style={{ background: "hsl(var(--primary) / 0.1)" }}
-              >
-                <Music2 className="w-3.5 h-3.5" style={{ color: "hsl(var(--primary) / 0.5)" }} />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-foreground/75 font-light truncate">{playerState.title}</p>
-              {playerState.author && (
-                <p className="text-[10px] text-muted-foreground/50 truncate">{playerState.author}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-0.5 shrink-0">
-              <button
-                onClick={() => prevTrack()}
-                className="w-7 h-7 flex items-center justify-center rounded-xl text-muted-foreground/45 hover:text-foreground/75 transition-colors"
-              >
-                <SkipBack className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => (isPlaying ? pause() : resume())}
-                className="w-8 h-8 flex items-center justify-center rounded-xl transition-colors"
-                style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary) / 0.8)" }}
-              >
-                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              </button>
-              <button
-                onClick={() => nextTrack()}
-                className="w-7 h-7 flex items-center justify-center rounded-xl text-muted-foreground/45 hover:text-foreground/75 transition-colors"
-              >
-                <SkipForward className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="px-4 pb-3.5">
-            {curated.length > 0 ? (
-              <div className="flex gap-2 flex-wrap mb-2">
-                <button
-                  onClick={handleRandom}
-                  disabled={!ready || isLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all duration-300 disabled:opacity-40"
-                  style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary) / 0.8)" }}
-                >
-                  <Shuffle className="w-3 h-3" />
-                  Random binaural
-                </button>
-                <button
-                  onClick={() => setShowPicker((p) => !p)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium text-muted-foreground/55 hover:text-foreground/70 border border-border/40 transition-all duration-300"
-                >
-                  <ListMusic className="w-3 h-3" />
-                  Choose playlist
-                </button>
-              </div>
-            ) : (
-              <p className="text-[10px] text-muted-foreground/40 pb-0.5">
-                {ready ? "No curated playlists yet." : "Loading player…"}
-              </p>
-            )}
+        <MusicPlayerCard
+          title={playerState?.title ?? (ready ? "Nothing playing" : "Loading player…")}
+          artist={playerState?.author ?? null}
+          artworkUrl={thumbUrl}
+          isPlaying={isPlaying}
+          onPrev={playerState ? () => prevTrack() : undefined}
+          onNext={playerState ? () => nextTrack() : undefined}
+          onTogglePlay={() => (isPlaying ? pause() : playerState ? resume() : handleRandom())}
+          onRadar={curated.length > 0 ? () => setShowPicker((p) => !p) : undefined}
+        />
+
+        {!playerState && curated.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={handleRandom}
+              disabled={!ready || isLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all duration-300 disabled:opacity-40"
+              style={{ background: "hsl(var(--primary) / 0.1)", color: "hsl(var(--primary) / 0.85)" }}
+            >
+              <Shuffle className="w-3 h-3" />
+              Random playlist
+            </button>
+            <button
+              onClick={() => setShowPicker((p) => !p)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium text-muted-foreground/55 hover:text-foreground/70 border border-border/40 transition-all duration-300"
+            >
+              <ListMusic className="w-3 h-3" />
+              Choose playlist
+            </button>
           </div>
         )}
+      </div>
 
         {/* Expandable playlist picker */}
         <AnimatePresence>
@@ -306,7 +264,6 @@ const MiniMusicPlayer = ({ overlay = false }: Props) => {
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
     </div>
   );
 };

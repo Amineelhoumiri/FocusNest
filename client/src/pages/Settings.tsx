@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Settings2, Zap, Volume2, Wind, Brain, Music, ChevronRight } from "lucide-react";
+import { Settings2, Zap, Volume2, Wind, Brain, Music, ChevronRight, Maximize2, Eye } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useZenMode } from "@/context/ZenModeContext";
 import { toast } from "sonner";
 
 const STORAGE_KEY = "focusnest_settings";
@@ -10,6 +11,7 @@ const defaultPrefs = {
   reduceAnimations: false,
   completionSounds: true,
   breathingWidget: true,
+  reduceVisualNoise: false,
 };
 
 function loadPrefs() {
@@ -97,6 +99,7 @@ const SettingRow = ({
 
 const SettingsPage = () => {
   const { user, updateLocalUser } = useAuth();
+  const { zenMode, toggleZenMode } = useZenMode();
   const [prefs, setPrefs] = useState(loadPrefs);
   const [savingConsent, setSavingConsent] = useState<string | null>(null);
 
@@ -142,11 +145,25 @@ const SettingsPage = () => {
         {/* ── Appearance ── */}
         <Section title="Appearance & Experience">
           <SettingRow
+            icon={Maximize2}
+            iconColor="bg-violet-500/15 text-violet-600"
+            label="Zen Mode"
+            description="Hide the sidebar and all distractions — pure focus view. Toggle anytime from the navbar."
+            right={<Toggle enabled={zenMode} onChange={toggleZenMode} />}
+          />
+          <SettingRow
             icon={Zap}
             iconColor="bg-primary/15 text-primary"
             label="Reduce Animations"
             description="Minimise motion effects throughout the app"
             right={<Toggle enabled={prefs.reduceAnimations} onChange={() => toggle("reduceAnimations")} />}
+          />
+          <SettingRow
+            icon={Eye}
+            iconColor="bg-sky-500/15 text-sky-500"
+            label="Reduce Visual Noise"
+            description="Mute background orbs and gradients for a calmer interface"
+            right={<Toggle enabled={prefs.reduceVisualNoise} onChange={() => toggle("reduceVisualNoise")} />}
           />
           <SettingRow
             icon={Volume2}

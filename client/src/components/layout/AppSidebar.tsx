@@ -7,11 +7,13 @@ import {
   IconShieldExclamation,
 } from "@tabler/icons-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useFocusScore } from "@/context/FocusScoreContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LogOut, User, X } from "lucide-react";
 
 // ─── Nav Groups ───────────────────────────────────────────────────────────────
 
@@ -42,12 +44,13 @@ interface NavItemProps {
   ai?: boolean;
   active: boolean;
   dark: boolean;
+  onClick?: () => void;
 }
 
-const NavItem = ({ to, icon: Icon, label, active, dark }: NavItemProps) => {
+const NavItem = ({ to, icon: Icon, label, active, dark, onClick }: NavItemProps) => {
   const [hovered, setHovered] = useState(false);
 
-  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.65)";
+  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.82)";
   const activeColor = dark ? "#ffffff" : "#534AB7";
   const hoverBg = dark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.06)";
   const activeBg = dark ? "rgba(124,111,247,0.18)" : "rgba(83,74,183,0.13)";
@@ -56,7 +59,7 @@ const NavItem = ({ to, icon: Icon, label, active, dark }: NavItemProps) => {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    padding: "7px 8px",
+    padding: "10px 8px",
     borderRadius: "8px",
     fontSize: "13px",
     cursor: "pointer",
@@ -72,6 +75,7 @@ const NavItem = ({ to, icon: Icon, label, active, dark }: NavItemProps) => {
       to={to}
       activeClassName=""
       style={itemStyle}
+      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -101,10 +105,10 @@ const NavItem = ({ to, icon: Icon, label, active, dark }: NavItemProps) => {
 
 // ─── Admin Nav Item ────────────────────────────────────────────────────────────
 
-const AdminNavItem = ({ active, dark }: { active: boolean; dark: boolean }) => {
+const AdminNavItem = ({ active, dark, onClick }: { active: boolean; dark: boolean; onClick?: () => void }) => {
   const [hovered, setHovered] = useState(false);
 
-  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.65)";
+  const baseColor = dark ? "rgba(203,213,225,0.9)" : "rgba(83,74,183,0.82)";
   const activeColor = dark ? "#ffffff" : "#534AB7";
   const hoverBg = dark ? "rgba(255,255,255,0.05)" : "rgba(83,74,183,0.06)";
   const activeBg = dark ? "rgba(124,111,247,0.18)" : "rgba(83,74,183,0.13)";
@@ -113,7 +117,7 @@ const AdminNavItem = ({ active, dark }: { active: boolean; dark: boolean }) => {
     display: "flex",
     alignItems: "center",
     gap: "8px",
-    padding: "7px 8px",
+    padding: "10px 8px",
     borderRadius: "8px",
     fontSize: "13px",
     cursor: "pointer",
@@ -129,6 +133,7 @@ const AdminNavItem = ({ active, dark }: { active: boolean; dark: boolean }) => {
       to="/admin"
       activeClassName=""
       style={itemStyle}
+      onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -159,8 +164,8 @@ const FocusScoreWidget = ({
       : "0.5px solid rgba(83,74,183,0.15)",
   };
 
-  const labelColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.65)";
-  const subtitleColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.65)";
+  const labelColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.82)";
+  const subtitleColor = dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.82)";
 
   const subtitle =
     score < 500
@@ -205,52 +210,33 @@ const FocusScoreWidget = ({
   );
 };
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar Content ──────────────────────────────────────────────────────────
 
-const AppSidebar = ({ overlay = false }: { overlay?: boolean }) => {
-  const location = useLocation();
-  const { user } = useAuth();
-  const { score, streak } = useFocusScore();
-  const { theme } = useTheme();
-
-  const dark = theme === "dark";
-
-  const isActive = (to: string) => {
-    if (to === "/tasks") return location.pathname.startsWith("/tasks");
-    return location.pathname === to;
-  };
-
-  const sidebarStyle: React.CSSProperties = {
-    width: "158px",
-    height: "calc(100vh - 3rem)",
-    position: "sticky",
-    top: "3rem",
-    display: "flex",
-    flexDirection: "column",
-    padding: "16px 10px",
-    gap: "2px",
-    flexShrink: 0,
-    backdropFilter: "blur(16px)",
-    WebkitBackdropFilter: "blur(16px)",
-    background: dark
-      ? "rgba(13,11,24,0.72)"
-      : "rgba(240,235,255,0.78)",
-    borderRight: overlay
-      ? "none"
-      : dark
-      ? "0.5px solid rgba(255,255,255,0.06)"
-      : "0.5px solid rgba(83,74,183,0.12)",
-    boxShadow: overlay ? "8px 0 32px rgba(0,0,0,0.18)" : "none",
-    overflowY: "auto",
-  };
-
+const SidebarContent = ({
+  dark,
+  isActive,
+  user,
+  score,
+  streak,
+  onNavClick,
+  onLogout,
+}: {
+  dark: boolean;
+  isActive: (to: string) => boolean;
+  user: { is_admin?: boolean; full_name?: string | null; email?: string | null } | null;
+  score: number;
+  streak: number;
+  onNavClick?: () => void;
+  onLogout: () => void | Promise<void>;
+}) => {
+  const navigate = useNavigate();
   const labelStyle: React.CSSProperties = {
     fontSize: "10px",
     letterSpacing: "0.07em",
     textTransform: "uppercase",
     padding: "8px 8px 4px",
     marginTop: "6px",
-    color: dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.55)",
+    color: dark ? "rgba(148,163,184,1)" : "rgba(83,74,183,0.75)",
   };
 
   const logoTextStyle: React.CSSProperties = {
@@ -260,7 +246,7 @@ const AppSidebar = ({ overlay = false }: { overlay?: boolean }) => {
   };
 
   return (
-    <aside style={sidebarStyle}>
+    <>
       {/* ── Logo area ── */}
       <div
         style={{
@@ -321,6 +307,7 @@ const AppSidebar = ({ overlay = false }: { overlay?: boolean }) => {
                 ai={link.ai}
                 active={isActive(link.to)}
                 dark={dark}
+                onClick={onNavClick}
               />
             ))}
           </div>
@@ -329,17 +316,207 @@ const AppSidebar = ({ overlay = false }: { overlay?: boolean }) => {
         {/* Admin */}
         {user?.is_admin && (
           <AdminNavItem
-            active={location.pathname === "/admin"}
+            active={isActive("/admin")}
             dark={dark}
+            onClick={onNavClick}
           />
         )}
       </nav>
+
+      {/* ── Account (mobile drawer: always reachable Profile + Sign out) ── */}
+      {user && (
+        <div
+          style={{
+            marginTop: "14px",
+            paddingTop: "12px",
+            borderTop: dark ? "0.5px solid rgba(255,255,255,0.08)" : "0.5px solid rgba(83,74,183,0.12)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}
+        >
+          <NavLink
+            to="/profile"
+            activeClassName=""
+            onClick={onNavClick}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 8px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              cursor: "pointer",
+              textDecoration: "none",
+              color: isActive("/profile")
+                ? dark
+                  ? "#ffffff"
+                  : "#534AB7"
+                : dark
+                  ? "rgba(203,213,225,0.9)"
+                  : "rgba(83,74,183,0.82)",
+              background: isActive("/profile")
+                ? dark
+                  ? "rgba(124,111,247,0.18)"
+                  : "rgba(83,74,183,0.13)"
+                : "transparent",
+              fontWeight: isActive("/profile") ? 500 : undefined,
+            }}
+          >
+            <User size={15} strokeWidth={1.4} style={{ flexShrink: 0 }} />
+            <span style={{ whiteSpace: "nowrap" }}>Profile</span>
+          </NavLink>
+          <button
+            type="button"
+            onClick={async () => {
+              onNavClick?.();
+              await onLogout();
+              navigate("/login");
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              width: "100%",
+              padding: "10px 8px",
+              borderRadius: "8px",
+              fontSize: "13px",
+              cursor: "pointer",
+              border: "none",
+              textAlign: "left",
+              background: "transparent",
+              color: dark ? "rgba(248,113,113,0.95)" : "rgba(220,38,38,0.92)",
+            }}
+          >
+            <LogOut size={15} strokeWidth={1.4} style={{ flexShrink: 0 }} />
+            <span style={{ whiteSpace: "nowrap" }}>Sign out</span>
+          </button>
+        </div>
+      )}
 
       {/* ── Focus Score widget (pushed to bottom) ── */}
       <div style={{ marginTop: "auto" }}>
         <FocusScoreWidget score={score} streak={streak} dark={dark} />
       </div>
-    </aside>
+    </>
+  );
+};
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+const AppSidebar = ({
+  open = false,
+  onClose,
+}: {
+  open?: boolean;
+  onClose?: () => void;
+}) => {
+  const location = useLocation();
+  const { user, logout } = useAuth();
+  const { score, streak } = useFocusScore();
+  const { theme } = useTheme();
+
+  const dark = theme === "dark";
+
+  const isActive = (to: string) => {
+    if (to === "/tasks") return location.pathname.startsWith("/tasks");
+    return location.pathname === to;
+  };
+
+  const sidebarBase: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    padding: "16px 10px",
+    gap: "2px",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    background: dark ? "rgba(13,11,24,0.72)" : "rgba(240,235,255,0.80)",
+    borderRight: dark
+      ? "0.5px solid rgba(255,255,255,0.08)"
+      : "0.5px solid rgba(83,74,183,0.15)",
+    overflowY: "auto",
+  };
+
+  const sharedContent = (onNavClick?: () => void) => (
+    <SidebarContent
+      dark={dark}
+      isActive={isActive}
+      user={user}
+      score={score}
+      streak={streak}
+      onNavClick={onNavClick}
+      onLogout={logout}
+    />
+  );
+
+  return (
+    <>
+      {/* ── Drawer (all screen sizes) ───────────────────────────────────────── */}
+      <AnimatePresence>
+        {open && (
+          <>
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[100] bg-black/50"
+              onClick={onClose}
+              aria-hidden
+            />
+
+            <motion.aside
+              key="drawer"
+              initial={{ x: -300 }}
+              animate={{ x: 0 }}
+              exit={{ x: -300 }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              style={{
+                ...sidebarBase,
+                width: "min(280px, 88vw)",
+                height: "100%",
+                position: "fixed",
+                top: 0,
+                left: 0,
+                boxShadow: "8px 0 32px rgba(0,0,0,0.22)",
+                zIndex: 110,
+                background: dark ? "rgba(13,11,24,0.96)" : "rgba(240,235,255,0.97)",
+              }}
+              aria-label="Navigation menu"
+              aria-modal="true"
+              role="dialog"
+            >
+              {/* Close button */}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close menu"
+                style={{
+                  position: "absolute",
+                  top: "12px",
+                  right: "10px",
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: dark ? "rgba(255,255,255,0.07)" : "rgba(83,74,183,0.08)",
+                  color: dark ? "rgba(255,255,255,0.5)" : "rgba(83,74,183,0.6)",
+                }}
+              >
+                <X size={14} />
+              </button>
+
+              {sharedContent(onClose)}
+            </motion.aside>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 

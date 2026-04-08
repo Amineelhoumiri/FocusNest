@@ -1042,9 +1042,8 @@ const TaskBoard = () => {
         onDragEnd={handleDragEnd}
       >
         <div
+          className="flex snap-x snap-mandatory gap-3 overflow-x-auto [-webkit-overflow-scrolling:touch] lg:gap-2.5 lg:overflow-visible lg:snap-none"
           style={{
-            display: "flex",
-            gap: 10,
             padding: "4px 0 24px",
             alignItems: "flex-start",
           }}
@@ -1053,18 +1052,22 @@ const TaskBoard = () => {
             const colItems = subtasks.filter((s) => frontendStatus(s.subtask_status) === col.id);
             const dotColor = isLight ? col.lightDot : col.darkDot;
             return (
-              <SubtaskColumn
+              <div
                 key={col.id}
-                colId={col.id}
-                label={col.label}
-                dotColor={dotColor}
-                items={colItems}
-                isLight={isLight}
-                onApprove={handleApprove}
-                onDelete={handleDelete}
-                onFocus={handleFocusSubtask}
-                onAddClick={handleAddClick}
-              />
+                className="w-[min(260px,calc(100vw-2.5rem))] shrink-0 snap-center lg:min-w-0 lg:w-0 lg:flex-1"
+              >
+                <SubtaskColumn
+                  colId={col.id}
+                  label={col.label}
+                  dotColor={dotColor}
+                  items={colItems}
+                  isLight={isLight}
+                  onApprove={handleApprove}
+                  onDelete={handleDelete}
+                  onFocus={handleFocusSubtask}
+                  onAddClick={handleAddClick}
+                />
+              </div>
             );
           })}
         </div>

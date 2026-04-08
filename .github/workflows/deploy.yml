@@ -166,6 +166,7 @@ jobs:
           docker push ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:latest
 
       - name: Start App Runner deployment
+        id: deploy
         env:
           SERVICE_ARN: ${{ secrets.APPRUNNER_SERVICE_ARN }}
         run: |
@@ -176,3 +177,14 @@ jobs:
           aws apprunner start-deployment \
             --service-arn "${SERVICE_ARN}" \
             --region "${{ secrets.AWS_REGION }}"
+          # Print the service URL so you can verify env vars are correct
+          URL=$(aws apprunner describe-service \
+            --service-arn "${SERVICE_ARN}" \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query "Service.ServiceUrl" \
+            --output text)
+          echo "::notice::App Runner URL: https://${URL}"
+          echo "::notice::Required env vars on the service — verify in App Runner console:"
+          echo "::notice::  BETTER_AUTH_URL  = https://${URL}"
+          echo "::notice::  CLIENT_URL       = https://${URL}"
+          echo "::notice::  SPOTIFY_REDIRECT_URI = https://${URL}/api/spotify/callback"
