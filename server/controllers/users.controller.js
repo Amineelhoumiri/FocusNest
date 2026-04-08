@@ -4,6 +4,8 @@
 
 const pool = require("../config/db");
 const bcrypt = require("bcrypt");
+const { verifyPassword, hashPassword } = require("better-auth/crypto");
+const { decrypt } = require("../services/encryption.service");
 
 // ─── Get User ─────────────────────────────────────────────────────────
 
@@ -14,9 +16,39 @@ const bcrypt = require("bcrypt");
  *
  * @route GET /api/users/me
  */
+/** Mirror Better Auth `"user"` row into `users` when missing (e.g. hook failed on NULL date_of_birth). */
+async function ensureAppUserRow(userId) {
+  const existing = await pool.query(`SELECT 1 FROM users WHERE user_id = $1`, [userId]);
+  if (existing.rows.length > 0) return;
+
+  const ba = await pool.query(
+    `SELECT id, name, email, full_name, date_of_birth, is_admin, is_consented_ai, is_consented_spotify
+     FROM "user" WHERE id = $1`,
+    [userId]
+  );
+  if (ba.rows.length === 0) return;
+
+  const row = ba.rows[0];
+  const fullName =
+    row.full_name || row.name || (row.email ? String(row.email).split("@")[0] : null) || "User";
+  const dobRaw = row.date_of_birth;
+  const dob =
+    dobRaw != null && String(dobRaw).trim() !== "" ? String(dobRaw).trim() : "2000-01-01";
+
+  await pool.query(
+    `INSERT INTO users
+       (user_id, full_name, date_of_birth, is_consented_core, is_consented_ai, is_consented_spotify, is_admin)
+     VALUES ($1, $2, $3::date, TRUE, COALESCE($4, false), COALESCE($5, false), COALESCE($6, false))
+     ON CONFLICT (user_id) DO NOTHING`,
+    [row.id, fullName, dob, row.is_consented_ai, row.is_consented_spotify, row.is_admin]
+  );
+}
+
 const getMe = async (req, res) => {
   try {
     const { user_id, email } = req.user;
+
+    await ensureAppUserRow(user_id);
 
     const result = await pool.query(
       `SELECT u.user_id, u.full_name, u.date_of_birth, u.address, u.profile_photo_url, u.phone_number,
@@ -155,8 +187,9 @@ const nukeAccount = async (req, res) => {
     const { password } = req.body;
 
     // Check if this user has a credential (email/password) account
+    // Better Auth uses camelCase columns: "userId", "providerId"
     const accountResult = await pool.query(
-      `SELECT password FROM account WHERE user_id = $1 AND provider_id = 'credential'`,
+      `SELECT password FROM account WHERE "userId" = $1 AND "providerId" = 'credential'`,
       [user_id]
     );
 
@@ -170,7 +203,7 @@ const nukeAccount = async (req, res) => {
         });
       }
 
-      const passwordMatch = await bcrypt.compare(password, accountResult.rows[0].password);
+      const passwordMatch = await verifyPassword({ password, hash: accountResult.rows[0].password });
       if (!passwordMatch) {
         return res.status(401).json({
           error: "INVALID_PASSWORD",
@@ -221,6 +254,20 @@ const exportData = async (req, res) => {
 
     const userData = user.rows[0];
 
+    const sessionsDecrypted = await Promise.all(
+      sessions.rows.map(async (row) => {
+        const copy = { ...row };
+        if (copy.reflection_content != null) {
+          try {
+            copy.reflection_content = await decrypt(copy.reflection_content.toString());
+          } catch {
+            copy.reflection_content = null;
+          }
+        }
+        return copy;
+      })
+    );
+
     const exportPayload = {
       exported_at: new Date().toISOString(),
       user: {
@@ -232,7 +279,7 @@ const exportData = async (req, res) => {
         created_at: userData.created_at,
       },
       tasks: tasks.rows,
-      sessions: sessions.rows,
+      sessions: sessionsDecrypted,
       chat_sessions: chatSessions.rows,
       consent_log: consentLog.rows,
     };
@@ -279,7 +326,7 @@ const changePassword = async (req, res) => {
     }
 
     const accountResult = await pool.query(
-      `SELECT password FROM account WHERE user_id = $1 AND provider_id = 'credential'`,
+      `SELECT password FROM account WHERE "userId" = $1 AND "providerId" = 'credential'`,
       [user_id]
     );
 
@@ -290,7 +337,7 @@ const changePassword = async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, accountResult.rows[0].password);
+    const isMatch = await verifyPassword({ password: currentPassword, hash: accountResult.rows[0].password });
     if (!isMatch) {
       return res.status(401).json({
         error: "INVALID_PASSWORD",
@@ -298,10 +345,10 @@ const changePassword = async (req, res) => {
       });
     }
 
-    const newHash = await bcrypt.hash(newPassword, 12);
+    const newHash = await hashPassword(newPassword);
 
     await pool.query(
-      `UPDATE account SET password = $1 WHERE user_id = $2 AND provider_id = 'credential'`,
+      `UPDATE account SET password = $1 WHERE "userId" = $2 AND "providerId" = 'credential'`,
       [newHash, user_id]
     );
 

@@ -57,8 +57,16 @@ const getUsage = async (req, res) => {
 };
 
 /**
- * Aggregates token usage from chat_messages table.
- * Returns total tokens, message counts, and a daily breakdown.
+ * Aggregates AI token usage across conversations.
+ *
+ * NOTE: We intentionally use `openai_usage` rather than `chat_messages.token_count`.
+ * In practice, chat message insertion doesn't always include accurate token counts,
+ * while OpenAI returns authoritative usage totals per request.
+ *
+ * We map:
+ * - prompt_tokens    → "user_tokens" (input side)
+ * - completion_tokens → "assistant_tokens" (output side)
+ * - total_tokens     → total
  *
  * @route GET /api/admin/chat-tokens
  */
@@ -67,21 +75,20 @@ const getChatTokenStats = async (req, res) => {
         const [summaryResult, dailyResult] = await Promise.all([
             pool.query(`
                 SELECT
-                    COUNT(*)                                        AS total_messages,
-                    COALESCE(SUM(cm.token_count), 0)               AS total_tokens,
-                    COALESCE(SUM(cm.token_count) FILTER (WHERE cm.role = 'user'),      0) AS user_tokens,
-                    COALESCE(SUM(cm.token_count) FILTER (WHERE cm.role = 'assistant'), 0) AS assistant_tokens,
-                    COUNT(DISTINCT cs.user_id)                     AS unique_users
-                FROM chat_messages cm
-                JOIN chat_sessions cs ON cm.chat_session_id = cs.chat_session_id
+                    COUNT(*)                               AS total_messages,
+                    COALESCE(SUM(total_tokens), 0)         AS total_tokens,
+                    COALESCE(SUM(prompt_tokens), 0)        AS user_tokens,
+                    COALESCE(SUM(completion_tokens), 0)    AS assistant_tokens,
+                    COUNT(DISTINCT user_id)                AS unique_users
+                FROM openai_usage
             `),
             pool.query(`
                 SELECT
-                    DATE(cm.created_at)                  AS date,
-                    COALESCE(SUM(cm.token_count), 0)     AS tokens,
-                    COUNT(*)                             AS messages
-                FROM chat_messages cm
-                GROUP BY DATE(cm.created_at)
+                    DATE(created_at)               AS date,
+                    COALESCE(SUM(total_tokens), 0) AS tokens,
+                    COUNT(*)                       AS messages
+                FROM openai_usage
+                GROUP BY DATE(created_at)
                 ORDER BY date DESC
                 LIMIT 30
             `),
@@ -94,6 +101,41 @@ const getChatTokenStats = async (req, res) => {
     } catch (err) {
         console.error("getChatTokenStats error:", err.message);
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to get chat token stats" });
+    }
+};
+
+// Helper to validate UUID format (admin actions)
+const isValidUUID = (uuid) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+};
+
+/**
+ * Admin-only: permanently delete a user account and all associated data.
+ *
+ * @route DELETE /api/admin/users/:user_id
+ */
+const deleteUserAccount = async (req, res) => {
+    try {
+        const { user_id } = req.params;
+        const requesterId = req.user?.user_id;
+
+        if (!user_id || !isValidUUID(user_id)) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "Valid user_id is required." });
+        }
+        if (requesterId && requesterId === user_id) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "Admins cannot delete their own account from this screen." });
+        }
+
+        // Delete from both tables — CASCADE handles children of each.
+        // "user" is quoted because it is a PostgreSQL reserved keyword.
+        await pool.query(`DELETE FROM users WHERE user_id = $1`, [user_id]);
+        await pool.query(`DELETE FROM "user" WHERE id = $1`, [user_id]);
+
+        return res.status(204).send();
+    } catch (err) {
+        console.error("deleteUserAccount error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to delete user account" });
     }
 };
 
@@ -145,6 +187,116 @@ const updateSystemPrompt = async (req, res) => {
 };
 
 /**
+ * Returns recent tasks and chat messages with content masked for privacy.
+ * task_name and message content are KMS-encrypted BYTEA — never decrypted here.
+ * Admins see metadata (timestamps, token counts, status) + a fixed mask placeholder.
+ *
+ * @route GET /api/admin/masked-activity
+ */
+const getMaskedActivity = async (req, res) => {
+    try {
+        const result = await pool.query(`
+            WITH
+            task_stats AS (
+                SELECT
+                    user_id,
+                    COUNT(*)                                            AS total_tasks,
+                    COUNT(*) FILTER (WHERE task_status = 'Done')       AS tasks_done,
+                    MAX(updated_at)                                     AS last_task_at
+                FROM tasks
+                GROUP BY user_id
+            ),
+            chat_stats AS (
+                SELECT
+                    cs.user_id,
+                    COUNT(cm.chat_message_id) FILTER (WHERE cm.role = 'user') AS messages_sent,
+                    COUNT(cm.chat_message_id)                                  AS total_messages,
+                    MAX(cm.created_at)                                         AS last_chat_at
+                FROM chat_sessions cs
+                LEFT JOIN chat_messages cm ON cm.chat_session_id = cs.chat_session_id
+                GROUP BY cs.user_id
+            ),
+            token_stats AS (
+                SELECT
+                    user_id,
+                    COALESCE(SUM(total_tokens), 0)      AS tokens_consumed,
+                    COUNT(*)                             AS ai_calls
+                FROM openai_usage
+                GROUP BY user_id
+            ),
+            session_stats AS (
+                SELECT
+                    user_id,
+                    COUNT(*)                             AS total_sessions,
+                    MAX(start_time)                      AS last_session_at
+                FROM focus_session
+                GROUP BY user_id
+            )
+            SELECT
+                u.user_id,
+                u.full_name,
+                u.created_at                         AS joined_at,
+                u.last_login_at,
+                u.focus_score,
+                u.is_consented_ai,
+                u.is_consented_spotify,
+                COALESCE(t.total_tasks, 0)           AS total_tasks,
+                COALESCE(t.tasks_done, 0)            AS tasks_done,
+                COALESCE(c.messages_sent, 0)         AS messages_sent,
+                COALESCE(c.total_messages, 0)        AS total_messages,
+                COALESCE(tk.tokens_consumed, 0)      AS tokens_consumed,
+                COALESCE(tk.ai_calls, 0)             AS ai_calls,
+                COALESCE(s.total_sessions, 0)        AS total_sessions,
+                GREATEST(t.last_task_at, c.last_chat_at, s.last_session_at) AS last_active_at
+            FROM users u
+            LEFT JOIN task_stats    t  ON t.user_id  = u.user_id
+            LEFT JOIN chat_stats    c  ON c.user_id  = u.user_id
+            LEFT JOIN token_stats   tk ON tk.user_id = u.user_id
+            LEFT JOIN session_stats s  ON s.user_id  = u.user_id
+            ORDER BY last_active_at DESC NULLS LAST
+        `);
+
+        return res.status(200).json({ users: result.rows });
+    } catch (err) {
+        console.error("getMaskedActivity error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to get masked activity" });
+    }
+};
+
+/**
+ * Creates a new system prompt in the database.
+ *
+ * @route POST /api/admin/prompts
+ */
+const createSystemPrompt = async (req, res) => {
+    try {
+        const { key, prompt } = req.body;
+
+        if (!key || !prompt) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "key and prompt are required." });
+        }
+
+        // Validate key format: lowercase alphanumeric + underscores only
+        if (!/^[a-z0-9_]+$/.test(key)) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "key must be lowercase alphanumeric with underscores only." });
+        }
+
+        const result = await pool.query(
+            `INSERT INTO system_prompts (key, prompt) VALUES ($1, $2) RETURNING *`,
+            [key, prompt]
+        );
+
+        return res.status(201).json(result.rows[0]);
+    } catch (err) {
+        if (err.code === "23505") {
+            return res.status(409).json({ error: "CONFLICT", message: "A prompt with this key already exists." });
+        }
+        console.error("createSystemPrompt error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to create system prompt" });
+    }
+};
+
+/**
  * Deletes a system prompt from the database.
  *
  * @route DELETE /api/admin/prompts/:key
@@ -169,4 +321,4 @@ const deleteSystemPrompt = async (req, res) => {
     }
 };
 
-module.exports = { getUsage, getChatTokenStats, getSystemPrompts, updateSystemPrompt, deleteSystemPrompt };
+module.exports = { getUsage, getChatTokenStats, getMaskedActivity, getSystemPrompts, createSystemPrompt, updateSystemPrompt, deleteSystemPrompt, deleteUserAccount };

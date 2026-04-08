@@ -29,6 +29,17 @@ const fillStep1 = (container: HTMLElement) => {
   fireEvent.change(screen.getByPlaceholderText("Confirm password"), { target: { value: STRONG_PASS } });
 };
 
+/** Step 1 (privacy) requires Core Data consent before `register` runs */
+const acceptCoreConsent = async () => {
+  await waitFor(() => {
+    expect(screen.getByText(/Core Data Processing/i)).toBeTruthy();
+  });
+  const heading = screen.getByText(/Core Data Processing/i);
+  const label = heading.closest("label");
+  if (!label) throw new Error("Core consent label not found");
+  fireEvent.click(label);
+};
+
 describe("Register page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,7 +81,7 @@ describe("Register page", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
     await waitFor(() => {
-      expect(screen.getAllByText(/privacy/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy();
     });
   });
 
@@ -82,7 +93,8 @@ describe("Register page", () => {
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
 
-    await waitFor(() => screen.getAllByText(/privacy/i));
+    await waitFor(() => expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy());
+    await acceptCoreConsent();
 
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
 
@@ -92,6 +104,9 @@ describe("Register page", () => {
           full_name: "Amine El Houmiri",
           email: "amine@test.com",
           password: STRONG_PASS,
+          date_of_birth: "2000-01-01",
+          is_consented_ai: false,
+          is_consented_spotify: false,
         })
       );
     });
@@ -104,7 +119,8 @@ describe("Register page", () => {
     const { container } = renderRegister();
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => screen.getAllByText(/privacy/i));
+    await waitFor(() => expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy());
+    await acceptCoreConsent();
     fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
 
     await waitFor(() => {
@@ -116,7 +132,7 @@ describe("Register page", () => {
     const { container } = renderRegister();
     fillStep1(container);
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    await waitFor(() => screen.getAllByText(/privacy/i));
+    await waitFor(() => expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy());
 
     // Back button is icon-only (ArrowLeft), first button in the footer row
     const buttons = screen.getAllByRole("button");

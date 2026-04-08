@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Save, Trash2, Eye, ShieldAlert, FileText, Database, MessageSquare, Users, Music, Plus, Waves, Youtube } from "lucide-react";
+import { Loader2, Save, Trash2, Eye, EyeOff, ShieldAlert, FileText, Database, MessageSquare, Users, Music, Plus, Waves, Youtube, Activity, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 interface CuratedPlaylist {
@@ -43,21 +43,42 @@ interface Prompt {
     updated_at: string;
 }
 
+interface UserActivityRow {
+    user_id: string;
+    full_name: string | null;
+    joined_at: string;
+    last_login_at: string | null;
+    focus_score: number;
+    is_consented_ai: boolean;
+    is_consented_spotify: boolean;
+    total_tasks: string;
+    tasks_done: string;
+    messages_sent: string;
+    total_messages: string;
+    tokens_consumed: string;
+    ai_calls: string;
+    total_sessions: string;
+    last_active_at: string | null;
+}
+
 const AdminDashboard = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
 
-    const [activeTab, setActiveTab] = useState<"usage" | "chat" | "prompts" | "playlists">("usage");
+    const [activeTab, setActiveTab] = useState<"usage" | "chat" | "prompts" | "playlists" | "activity">("usage");
 
     const [usageLogs, setUsageLogs] = useState<UsageLog[]>([]);
     const [chatStats, setChatStats] = useState<ChatTokenStats | null>(null);
     const [prompts, setPrompts] = useState<Prompt[]>([]);
     const [curated, setCurated] = useState<CuratedPlaylist[]>([]);
+    const [userActivity, setUserActivity] = useState<UserActivityRow[]>([]);
     const [newPlaylist, setNewPlaylist] = useState<{ youtube_playlist_id: string; name: string; description: string; source: "youtube" | "spotify" }>({ youtube_playlist_id: "", name: "", description: "", source: "youtube" });
     const [isAddingPlaylist, setIsAddingPlaylist] = useState(false);
 
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState<string | null>(null);
+    const [newPrompt, setNewPrompt] = useState({ key: "", prompt: "" });
+    const [isCreatingPrompt, setIsCreatingPrompt] = useState(false);
 
     useEffect(() => {
         if (!user) return;
@@ -72,17 +93,22 @@ const AdminDashboard = () => {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const [usageRes, chatRes, promptsRes, curatedRes] = await Promise.all([
+            const [usageRes, chatRes, promptsRes, curatedRes, activityRes] = await Promise.all([
                 fetch("/api/admin/usage"),
                 fetch("/api/admin/chat-tokens"),
                 fetch("/api/admin/prompts"),
                 fetch("/api/music/curated", { credentials: "include" }),
+                fetch("/api/admin/masked-activity"),
             ]);
 
             if (usageRes.ok) setUsageLogs(await usageRes.json());
             if (chatRes.ok) setChatStats(await chatRes.json());
             if (promptsRes.ok) setPrompts(await promptsRes.json());
             if (curatedRes.ok) setCurated(await curatedRes.json());
+            if (activityRes.ok) {
+                const data = await activityRes.json();
+                setUserActivity(data.users ?? []);
+            }
 
         } catch (err) {
             toast.error("Failed to load admin data");
@@ -126,6 +152,32 @@ const AdminDashboard = () => {
         }
     };
 
+    const handlePromptCreate = async () => {
+        if (!newPrompt.key.trim() || !newPrompt.prompt.trim()) {
+            toast.error("Both key and prompt content are required.");
+            return;
+        }
+        setIsCreatingPrompt(true);
+        try {
+            const res = await fetch("/api/admin/prompts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ key: newPrompt.key.trim(), prompt: newPrompt.prompt.trim() }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message ?? "Failed to create prompt");
+            }
+            toast.success(`Prompt "${newPrompt.key}" created`);
+            setNewPrompt({ key: "", prompt: "" });
+            fetchData();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Error creating prompt");
+        } finally {
+            setIsCreatingPrompt(false);
+        }
+    };
+
     const handlePromptUpdate = async (key: string, newPrompt: string) => {
         setIsSaving(key);
         try {
@@ -153,6 +205,25 @@ const AdminDashboard = () => {
             fetchData();
         } catch (err) {
             toast.error("Error deleting prompt");
+        }
+    };
+
+    const handleUserDelete = async (userId: string, name?: string | null) => {
+        const label = name?.trim() ? `${name} (${userId.slice(0, 8)}…)` : userId;
+        const ok = prompt(
+            `Type DELETE to permanently remove this user and all associated data:\n\n${label}\n\nThis cannot be undone.`
+        );
+        if (ok !== "DELETE") return;
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE", credentials: "include" });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({})) as { message?: string };
+                throw new Error(data.message ?? "Failed to delete user");
+            }
+            toast.success("User deleted.");
+            setUserActivity((prev) => prev.filter((u) => u.user_id !== userId));
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to delete user.");
         }
     };
 
@@ -215,6 +286,12 @@ const AdminDashboard = () => {
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${activeTab === "playlists" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                 >
                     <Music className="w-4 h-4" /> Playlists
+                </button>
+                <button
+                    onClick={() => setActiveTab("activity")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${activeTab === "activity" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                    <Activity className="w-4 h-4" /> Activity
                 </button>
             </div>
 
@@ -396,6 +473,35 @@ const AdminDashboard = () => {
                         <p>These system prompts control how the AI assistant behaves across the platform. Editing them will immediately affect all users.</p>
                     </div>
 
+                    {/* Create new prompt */}
+                    <div className="glass-card rounded-2xl p-5 space-y-3 border border-border/50">
+                        <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                            <Plus className="w-4 h-4" />
+                            New prompt
+                        </p>
+                        <input
+                            value={newPrompt.key}
+                            onChange={(e) => setNewPrompt((p) => ({ ...p, key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_") }))}
+                            placeholder="key (e.g. coach_persona)"
+                            className="w-full rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all font-mono"
+                        />
+                        <textarea
+                            value={newPrompt.prompt}
+                            onChange={(e) => setNewPrompt((p) => ({ ...p, prompt: e.target.value }))}
+                            placeholder="System prompt content…"
+                            rows={5}
+                            className="w-full rounded-xl border border-border bg-card/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 transition-all resize-none"
+                        />
+                        <button
+                            onClick={handlePromptCreate}
+                            disabled={isCreatingPrompt || !newPrompt.key.trim() || !newPrompt.prompt.trim()}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all"
+                        >
+                            {isCreatingPrompt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                            Create prompt
+                        </button>
+                    </div>
+
                     <div className="space-y-6">
                         {prompts.map((p) => (
                             <PromptEditor
@@ -526,6 +632,176 @@ const AdminDashboard = () => {
                             </div>
                         )}
                     </div>
+                </motion.div>
+            )}
+
+            {/* Activity Tab — FR-A-02 Masked Data View */}
+            {activeTab === "activity" && (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+
+                    {/* Privacy notice + refresh */}
+                    <div className="flex items-start gap-3 p-4 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 text-sm">
+                        <EyeOff className="w-5 h-5 shrink-0 mt-0.5" />
+                        <p>
+                            Content is <strong>end-to-end encrypted</strong> with AWS KMS and never decrypted server-side.
+                            You can see metadata (timestamps, token counts, status) but task names and chat messages are always masked.
+                        </p>
+                        <button
+                            onClick={fetchData}
+                            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-500/20 hover:bg-violet-500/30 transition-all"
+                        >
+                            <RefreshCw className="w-3 h-3" />
+                            Refresh
+                        </button>
+                    </div>
+
+                    {/* Unified user overview table */}
+                    <div className="glass-card rounded-2xl overflow-hidden border border-border/50">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-border/50 bg-muted/30">
+                                        <th className="px-4 py-3 font-medium text-left text-muted-foreground">User</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Status</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Joined</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Last Login</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Score</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Consents</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Sessions</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Tasks</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Done %</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">Msgs</th>
+                                        <th className="px-4 py-3 font-medium text-center text-muted-foreground">AI Calls</th>
+                                        <th className="px-4 py-3 font-medium text-right text-muted-foreground">Tokens</th>
+                                        <th className="px-4 py-3 font-medium text-left text-muted-foreground">Last Active</th>
+                                        <th className="px-4 py-3 font-medium text-right text-muted-foreground">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/30">
+                                    {userActivity.length === 0 ? (
+                                        <tr><td colSpan={14} className="px-4 py-10 text-center text-muted-foreground/50">No user data yet.</td></tr>
+                                    ) : userActivity.map((u) => {
+                                        const tasks     = parseInt(u.total_tasks);
+                                        const done      = parseInt(u.tasks_done);
+                                        const pct       = tasks > 0 ? Math.round((done / tasks) * 100) : 0;
+                                        const tokens    = parseInt(u.tokens_consumed);
+                                        const msgsSent  = parseInt(u.messages_sent);
+
+                                        // Activity status based on last_active_at
+                                        let status: "active" | "idle" | "dormant" = "dormant";
+                                        if (u.last_active_at) {
+                                            const daysSince = (Date.now() - new Date(u.last_active_at).getTime()) / 86_400_000;
+                                            if (daysSince < 1)  status = "active";
+                                            else if (daysSince < 7) status = "idle";
+                                        }
+
+                                        const statusCfg = {
+                                            active:  { label: "Active",  cls: "bg-emerald-500/15 text-emerald-400" },
+                                            idle:    { label: "Idle",    cls: "bg-amber-500/15 text-amber-400"     },
+                                            dormant: { label: "Dormant", cls: "bg-muted/40 text-muted-foreground"  },
+                                        }[status];
+
+                                        // Flag heavy AI users (>500 tokens)
+                                        const highToken = tokens > 500;
+
+                                        return (
+                                            <tr key={u.user_id} className="hover:bg-muted/20 transition-colors">
+                                                {/* User */}
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-8 h-8 rounded-full bg-violet-500/15 flex items-center justify-center text-[11px] font-bold text-violet-400 shrink-0">
+                                                            {(u.full_name ?? u.user_id).slice(0, 2).toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-xs font-medium text-foreground/80 leading-none mb-0.5">
+                                                                {u.full_name ?? "—"}
+                                                            </p>
+                                                            <p className="font-mono text-[10px] text-muted-foreground/50">{u.user_id.slice(0, 8)}…</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                {/* Status */}
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusCfg.cls}`}>
+                                                        {statusCfg.label}
+                                                    </span>
+                                                </td>
+                                                {/* Joined */}
+                                                <td className="px-4 py-3 text-xs text-muted-foreground/50 tabular-nums text-center">
+                                                    {new Date(u.joined_at).toLocaleDateString()}
+                                                </td>
+                                                {/* Last Login */}
+                                                <td className="px-4 py-3 text-xs tabular-nums text-center">
+                                                    {u.last_login_at
+                                                        ? <span className="text-muted-foreground/60">{new Date(u.last_login_at).toLocaleString()}</span>
+                                                        : <span className="text-muted-foreground/30">—</span>}
+                                                </td>
+                                                {/* Focus Score */}
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`font-semibold tabular-nums text-sm ${(u.focus_score ?? 0) > 100 ? "text-emerald-400" : "text-muted-foreground/60"}`}>
+                                                        {u.focus_score ?? 0}
+                                                    </span>
+                                                </td>
+                                                {/* Consents */}
+                                                <td className="px-4 py-3 text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        <span title="AI consent" className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.is_consented_ai ? "bg-violet-500/20 text-violet-400" : "bg-muted/30 text-muted-foreground/30"}`}>AI</span>
+                                                        <span title="Spotify consent" className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${u.is_consented_spotify ? "bg-emerald-500/20 text-emerald-400" : "bg-muted/30 text-muted-foreground/30"}`}>♫</span>
+                                                    </div>
+                                                </td>
+                                                {/* Sessions */}
+                                                <td className="px-4 py-3 text-center font-semibold text-foreground/80">{u.total_sessions}</td>
+                                                {/* Tasks */}
+                                                <td className="px-4 py-3 text-center text-foreground/80">{tasks}</td>
+                                                {/* Done % */}
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-1.5 justify-center">
+                                                        <div className="w-12 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                                                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                                                        </div>
+                                                        <span className="text-[11px] text-muted-foreground/60 tabular-nums">{pct}%</span>
+                                                    </div>
+                                                </td>
+                                                {/* Messages sent */}
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className={`font-semibold tabular-nums ${msgsSent > 50 ? "text-amber-400" : "text-foreground/70"}`}>
+                                                        {msgsSent}
+                                                    </span>
+                                                    {msgsSent > 50 && <span className="ml-1 text-[10px] text-amber-400/70">⚠</span>}
+                                                </td>
+                                                {/* AI calls */}
+                                                <td className="px-4 py-3 text-center text-violet-400 font-semibold tabular-nums">{u.ai_calls}</td>
+                                                {/* Tokens */}
+                                                <td className="px-4 py-3 text-right tabular-nums">
+                                                    <span className={highToken ? "text-red-400 font-semibold" : "text-muted-foreground/60"}>
+                                                        {tokens.toLocaleString()}
+                                                    </span>
+                                                    {highToken && <span className="ml-1 text-[10px] text-red-400/70">🔥</span>}
+                                                </td>
+                                                {/* Last active */}
+                                                <td className="px-4 py-3 text-xs text-muted-foreground/50 tabular-nums">
+                                                    {u.last_active_at ? new Date(u.last_active_at).toLocaleString() : "Never"}
+                                                </td>
+                                                {/* Actions */}
+                                                <td className="px-4 py-3 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleUserDelete(u.user_id, u.full_name)}
+                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-destructive/10 text-destructive hover:bg-destructive/15 border border-destructive/20 transition-colors"
+                                                        title="Delete user (permanent)"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                        Delete
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                 </motion.div>
             )}
 

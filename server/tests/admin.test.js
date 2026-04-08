@@ -64,6 +64,22 @@ describe("GET /api/admin/chat-tokens", () => {
   });
 });
 
+describe("DELETE /api/admin/users/:user_id", () => {
+  it("returns 204 on successful delete", async () => {
+    pool.query
+      .mockResolvedValueOnce({ rows: [] }) // DELETE users
+      .mockResolvedValueOnce({ rows: [] }); // DELETE "user"
+
+    const res = await request(app).delete("/api/admin/users/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa");
+    expect(res.status).toBe(204);
+  });
+
+  it("returns 400 for invalid user_id", async () => {
+    const res = await request(app).delete("/api/admin/users/not-a-uuid");
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("GET /api/admin/prompts", () => {
   it("returns 200 with system prompts list", async () => {
     pool.query.mockResolvedValueOnce({

@@ -43,8 +43,9 @@ const Login = () => {
     setTimeout(() => setShaking(false), 500);
   };
 
-  const handleSocialLogin = async (provider: "google" | "apple") => {
-    const result = await authClient.signIn.social({ provider, callbackURL: "/dashboard" });
+  const handleSocialLogin = async (provider: "google") => {
+    const callbackURL = `${window.location.origin}/dashboard`;
+    const result = await authClient.signIn.social({ provider, callbackURL });
     if (result?.error) setError(result.error.message || `${provider} sign-in failed`);
   };
 
@@ -59,8 +60,8 @@ const Login = () => {
     try {
       await login(email, password);
       navigate("/dashboard");
-    } catch {
-      setError("Invalid credentials");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Sign-in failed");
       shake();
     }
   };
@@ -234,12 +235,6 @@ const Login = () => {
               </svg>
               Google
             </SocialBtn>
-            <SocialBtn onClick={() => handleSocialLogin("apple")}>
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 814 1000" fill="currentColor">
-                <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-37.3-148.2-93.7C27.1 777.1-1.4 703.4-.3 631.7c1.1-88.5 38.7-170.2 96.7-222.7 36.8-32.5 96.4-57.9 159.7-57.9 62.6 0 113.2 40.1 164.7 40.1 50.2 0 111.7-43.4 187.7-43.4zm-162.2-179.5c30.2-35.5 52.5-84.1 52.5-132.7 0-6.7-.4-13.5-1.5-19.9-49.9 1.9-109.1 33.3-144.8 74.3-27.5 31.1-53.6 80.2-53.6 129.5 0 7.2.9 14.4 2.1 20.9 5.5.9 11.2 1.5 17.2 1.5 44.6 0 99.8-29.1 128.1-73.6z" />
-              </svg>
-              Apple
-            </SocialBtn>
           </div>
 
           {/* Footer */}
@@ -250,6 +245,21 @@ const Login = () => {
               className="font-semibold text-primary/75 hover:text-primary transition-colors duration-200"
             >
               Create account →
+            </Link>
+          </p>
+          <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground/45">
+            <Link
+              to="/terms"
+              className="underline-offset-2 hover:text-muted-foreground/70 hover:underline"
+            >
+              Terms of Service
+            </Link>
+            <span className="mx-1.5 opacity-50">·</span>
+            <Link
+              to="/privacy"
+              className="underline-offset-2 hover:text-muted-foreground/70 hover:underline"
+            >
+              Privacy Policy
             </Link>
           </p>
         </motion.div>

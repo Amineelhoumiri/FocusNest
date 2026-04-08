@@ -1,6 +1,5 @@
 require("dotenv").config();
 const { Pool } = require("pg");
-const { decrypt } = require("../services/encryption.service");
 
 const pool = new Pool({
     host: process.env.DB_HOST,
@@ -21,31 +20,31 @@ const makeAdmin = async () => {
     }
 
     try {
-        console.log("🔍 Searching for account... (this might take a few seconds due to KMS decryption)");
-        const allAccounts = await pool.query("SELECT user_id, encrypted_email FROM account");
+        // Update Better Auth "user" table
+        const baResult = await pool.query(
+            `UPDATE "user" SET is_admin = true WHERE email = $1 RETURNING id, email, is_admin`,
+            [email]
+        );
 
-        let targetUserId = null;
-        for (const row of allAccounts.rows) {
-            const decEmail = await decrypt(row.encrypted_email.toString());
-            if (decEmail && decEmail.toLowerCase() === email.toLowerCase()) {
-                targetUserId = row.user_id;
-                break;
-            }
-        }
-
-        if (!targetUserId) {
-            console.error(`❌ User with email "${email}" not found.`);
+        if (baResult.rows.length === 0) {
+            console.error(`❌ No user found with email "${email}".`);
+            const all = await pool.query(`SELECT email, is_admin FROM "user" ORDER BY email`);
+            console.log("\nExisting users:");
+            all.rows.forEach(r => console.log(`  ${r.is_admin ? "✅" : "  "} ${r.email}`));
             return;
         }
 
-        const result = await pool.query(
-            "UPDATE users SET is_admin = true WHERE user_id = $1 RETURNING full_name, is_admin",
-            [targetUserId]
+        // Also update the app-level users mirror table
+        await pool.query(
+            `UPDATE users SET is_admin = true
+             FROM "user" ba
+             WHERE ba.id::uuid = users.user_id AND ba.email = $1`,
+            [email]
         );
 
-        console.log("✅ Successfully updated user to admin!");
-        console.log(result.rows[0]);
-
+        console.log("✅ Successfully promoted to admin!");
+        console.log(baResult.rows[0]);
+        console.log("\n👉 The user must log out and log back in for the change to take effect.");
     } catch (err) {
         console.error("Database error:", err.message);
     } finally {

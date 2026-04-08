@@ -1,5 +1,9 @@
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+const { applyDevEnvDefaults } = require("./dev-env-defaults");
+applyDevEnvDefaults();
 require("./instrument.js");
+const { runStartupCheck } = require("./startup-check");
+runStartupCheck();
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -101,15 +105,31 @@ app.get("/api/ready", async (req, res) => {
   }
 });
 
-// After OAuth, Better Auth redirects here → we bounce the browser to the client
-app.get("/dashboard", (req, res) => {
-  res.redirect(`${process.env.CLIENT_URL || "http://localhost:8080"}/dashboard`);
-});
 
 app.get("/debug-sentry", (req, res, next) => {
   const error = new Error("My first Sentry error!");
   next(error);
 });
+
+// ─── Swagger UI (non-production — MVP §7) ───────────────────────────────────
+const swaggerEnabled =
+  process.env.ENABLE_SWAGGER !== "0" && process.env.NODE_ENV !== "production";
+if (swaggerEnabled) {
+  try {
+    const swaggerUi = require("swagger-ui-express");
+    const YAML = require("yaml");
+    const specPath = path.join(__dirname, "..", "docs", "swagger.yaml");
+    if (fs.existsSync(specPath)) {
+      const spec = YAML.parse(fs.readFileSync(specPath, "utf8"));
+      app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(spec, { customSiteTitle: "FocusNest API" }));
+      console.log("Swagger UI available at /api/docs");
+    } else {
+      console.warn("Swagger: docs/swagger.yaml not found — skipping /api/docs");
+    }
+  } catch (e) {
+    console.warn("Swagger UI failed to load:", e.message);
+  }
+}
 
 // ─── Static SPA (production Docker / same-origin deploy) ────────────────────
 const staticDir = process.env.STATIC_DIR || path.join(__dirname, "../client/dist");

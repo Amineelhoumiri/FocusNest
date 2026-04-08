@@ -86,7 +86,8 @@ describe("Login page", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/invalid credentials/i)).toBeTruthy();
+      // Login surfaces the thrown Error message (see handleSubmit catch)
+      expect(screen.getByText(/^invalid$/i)).toBeTruthy();
     });
   });
 

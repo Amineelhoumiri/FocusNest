@@ -1,17 +1,20 @@
-# Local / demo: run the full stack in one container (expects .env with DB + secrets)
+# Local Postgres for development (avoids RDS timeouts from your laptop).
+# Usage:
+#   docker compose up -d
+# Then in server/.env point DB_* at 127.0.0.1 and DB_PORT=5433 (mapped below).
+# Apply schema/migrations with psql as needed (see server/scripts/migrations/).
+
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        # Same host as browser when opening http://localhost:3000
-        VITE_API_URL: http://localhost:3000
-    ports:
-      - "3000:3000"
-    env_file:
-      - ./server/.env
+  postgres:
+    image: postgres:16-alpine
     environment:
-      STATIC_DIR: /app/client/dist
-      PORT: "3000"
-    restart: unless-stopped
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: focusnest
+    ports:
+      - "5433:5432"
+    volumes:
+      - focusnest_dev_pg:/var/lib/postgresql/data
+
+volumes:
+  focusnest_dev_pg:
