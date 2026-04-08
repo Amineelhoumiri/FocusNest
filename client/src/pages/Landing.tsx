@@ -6,10 +6,12 @@ import {
   ArrowRight, Brain, Timer, Sparkles, Clock, Maximize,
   LifeBuoy, ShieldCheck, Star, Zap, Heart, Shield,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useRef, useEffect, useState } from "react";
 import { useTheme } from "@/context/ThemeContext";
+import { useAuth } from "@/context/AuthContext";
 import { FinchBird } from "@/components/finch-bird";
+import { ProfileDropdown } from "@/components/ui/profile-dropdown";
 
 // ─── Animated counter ─────────────────────────────────────────────────────────
 
@@ -563,6 +565,8 @@ const SectionBadge = ({ children, color = "primary" }: { children: React.ReactNo
 const Landing = () => {
   const { theme } = useTheme();
   const isLight = theme === "light";
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: containerRef });
@@ -591,7 +595,7 @@ const Landing = () => {
   }, []);
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-background text-foreground overflow-x-hidden scroll-smooth">
+    <div ref={containerRef} className="relative min-h-screen bg-background text-foreground overflow-x-hidden scroll-smooth">
 
       {/* Scroll progress bar */}
       <motion.div
@@ -676,13 +680,13 @@ const Landing = () => {
         </svg>
       </div>
 
-      {/* ─── Navbar ────────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-50 px-4 md:px-8 pt-4 pb-2 pointer-events-none">
+      {/* ─── Navbar (iPhone SE / 375px: tight padding, Sign in visible, logged-in → Dashboard + profile) ─── */}
+      <div className="sticky top-0 z-50 px-2 sm:px-4 md:px-8 pt-3 sm:pt-4 pb-2 pointer-events-none">
         <motion.nav
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-          className="pointer-events-auto flex items-center justify-between px-7 py-4 rounded-2xl mx-auto max-w-[1280px] transition-all duration-500"
+          className="pointer-events-auto flex items-center justify-between gap-2 px-3 sm:px-5 md:px-7 py-3 sm:py-4 rounded-2xl mx-auto max-w-[1280px] transition-all duration-500"
           style={{
             background: scrolled
               ? "hsl(var(--background) / 0.90)"
@@ -698,17 +702,17 @@ const Landing = () => {
           }}
         >
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
             <motion.div
               animate={prefersReducedMotion ? {} : { scale: [1, 1.06, 1] }}
               transition={{ delay: 0.4, duration: 0.7, ease: "easeInOut" }}
               whileHover={{ rotate: 6, scale: 1.1, transition: { type: "spring", stiffness: 400 } }}
-              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg"
+              className="w-8 h-8 sm:w-9 sm:h-9 shrink-0 rounded-xl flex items-center justify-center shadow-lg"
               style={{ background: "hsl(var(--primary))", boxShadow: "0 4px 14px rgba(124,58,237,0.45)" }}
             >
-              <span className="text-white font-bold text-sm">F</span>
+              <span className="text-white font-bold text-xs sm:text-sm">F</span>
             </motion.div>
-            <span className="font-bold text-[16px] tracking-tight">
+            <span className="font-bold text-[14px] sm:text-[16px] tracking-tight truncate">
               Focus<span className="text-primary">Nest</span>
             </span>
           </div>
@@ -730,31 +734,59 @@ const Landing = () => {
           </div>
 
           {/* Right actions */}
-          <div className="flex items-center gap-3">
-            <Link
-              to="/login"
-              className="hidden md:flex items-center h-10 px-5 rounded-xl text-[14px] font-medium text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.06] transition-all duration-200"
-            >
-              Sign in
-            </Link>
-            <div className="hidden md:block w-px h-5" style={{ background: "rgba(255,255,255,0.12)" }} />
-            <Link to="/register">
-              <motion.button
-                whileHover={{ scale: 1.04, boxShadow: "0 6px 24px rgba(124,58,237,0.5)" }}
-                whileTap={{ scale: 0.97 }}
-                className="relative overflow-hidden flex items-center gap-2 text-white font-semibold rounded-xl text-[14px] h-10 px-5 transition-all"
-                style={{ background: "hsl(var(--primary))", boxShadow: "0 2px 12px rgba(124,58,237,0.35)" }}
-              >
-                <motion.span
-                  className="absolute inset-0 pointer-events-none"
-                  style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
-                  animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "linear", repeatDelay: 2 }}
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 shrink-0">
+            {user ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  className="flex items-center h-9 sm:h-10 px-2 sm:px-3 rounded-xl text-xs sm:text-sm font-semibold text-muted-foreground/80 hover:text-foreground hover:bg-white/[0.06] transition-all duration-200 whitespace-nowrap"
+                >
+                  Dashboard
+                </Link>
+                <ProfileDropdown
+                  variant="compact"
+                  data={{
+                    name: user.full_name,
+                    email: user.email,
+                    avatarUrl: user.profile_photo_url ?? null,
+                  }}
+                  onLogout={async () => {
+                    await logout();
+                    navigate("/");
+                  }}
                 />
-                Get started free
-                <ArrowRight className="w-4 h-4" />
-              </motion.button>
-            </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="flex items-center h-9 sm:h-10 px-2 sm:px-4 rounded-xl text-xs sm:text-[14px] font-medium text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.06] transition-all duration-200 whitespace-nowrap"
+                >
+                  Sign in
+                </Link>
+                <div className="hidden md:block w-px h-5 shrink-0" style={{ background: "rgba(255,255,255,0.12)" }} />
+                <Link to="/register" className="shrink-0">
+                  <motion.button
+                    whileHover={{ scale: 1.04, boxShadow: "0 6px 24px rgba(124,58,237,0.5)" }}
+                    whileTap={{ scale: 0.97 }}
+                    className="relative overflow-hidden flex items-center gap-1.5 sm:gap-2 text-white font-semibold rounded-xl text-xs sm:text-[14px] h-9 sm:h-10 px-3 sm:px-5 transition-all max-w-[11rem] sm:max-w-none"
+                    style={{ background: "hsl(var(--primary))", boxShadow: "0 2px 12px rgba(124,58,237,0.35)" }}
+                  >
+                    <motion.span
+                      className="absolute inset-0 pointer-events-none"
+                      style={{ background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)", backgroundSize: "200% 100%" }}
+                      animate={{ backgroundPosition: ["-100% 0", "200% 0"] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "linear", repeatDelay: 2 }}
+                    />
+                    <span className="truncate sm:max-w-none">
+                      <span className="sm:hidden">Start free</span>
+                      <span className="hidden sm:inline">Get started free</span>
+                    </span>
+                    <ArrowRight className="hidden sm:inline-block w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                  </motion.button>
+                </Link>
+              </>
+            )}
           </div>
         </motion.nav>
       </div>
@@ -992,13 +1024,14 @@ const Landing = () => {
 
           {/* Bento grid */}
           <div
-            className="grid gap-3"
+            className="bento-grid grid gap-3"
             style={{ gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "auto" }}
           >
             {BENTO.map((f, i) => (
               <Link
                 key={f.title}
                 to={f.to}
+                className="bento-cell"
                 style={{ gridColumn: f.gridCol, gridRow: f.gridRow }}
               >
                 <motion.div

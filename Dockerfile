@@ -1,7 +1,8 @@
 # FocusNest — multi-stage: build Vite client + production Node server (serves API + static SPA)
 # ─── Build client ─────────────────────────────────────────────────────────────
-# Floating node:22-alpine tag so patch releases flow in without digest bumps.
-FROM node:22-alpine AS client-build
+# Use a specific Alpine major to reduce surprise CVEs between releases.
+# (Trivy gate in CI is sensitive to HIGH/CRITICAL vulns in base images.)
+FROM node:22-alpine3.21 AS client-build
 WORKDIR /app/client
 
 COPY client/package.json client/package-lock.json ./
@@ -13,7 +14,7 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:22-alpine3.21 AS runtime
 
 # Upgrade all base OS packages so fixable Alpine CVEs are patched; dumb-init for PID 1
 RUN apk upgrade --no-cache \

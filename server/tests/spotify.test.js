@@ -25,6 +25,9 @@ const app = express();
 app.use(express.json());
 app.use("/api/spotify", require("../routes/spotify.routes"));
 
+// Spotify consent middleware issues: SELECT is_consented_spotify FROM users …
+const SPOTIFY_CONSENT_OK = { rows: [{ is_consented_spotify: true }] };
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -35,13 +38,14 @@ beforeEach(() => {
 
 describe("GET /api/spotify/auth", () => {
   it("returns 200 with OAuth URL", async () => {
+    pool.query.mockResolvedValueOnce(SPOTIFY_CONSENT_OK);
     spotifyService.getAuthUrl.mockReturnValue("https://accounts.spotify.com/authorize?...");
 
     const res = await request(app).get("/api/spotify/auth");
 
     expect(res.status).toBe(200);
     expect(res.body.url).toContain("spotify.com");
-    expect(spotifyService.getAuthUrl).toHaveBeenCalledWith(expect.any(String));
+    expect(spotifyService.getAuthUrl).toHaveBeenCalledWith(expect.any(String), expect.any(String));
   });
 });
 
@@ -56,6 +60,7 @@ describe("GET /api/spotify/callback", () => {
     });
     spotifyService.getSpotifyProfile.mockResolvedValue({ id: "spotify_user", display_name: "Amine" });
     pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK) // consent check in callback
       .mockResolvedValueOnce({ rows: [] }) // no existing account
       .mockResolvedValueOnce({ rows: [] }); // INSERT
 
@@ -72,6 +77,7 @@ describe("GET /api/spotify/callback", () => {
     });
     spotifyService.getSpotifyProfile.mockResolvedValue({ id: "spotify_user", display_name: "Amine" });
     pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK) // consent check in callback
       .mockResolvedValueOnce({ rows: [{ spotify_acc_id: "existing" }] }) // existing account
       .mockResolvedValueOnce({ rows: [] }); // UPDATE
 
@@ -101,11 +107,24 @@ describe("GET /api/spotify/callback", () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain("error=callback_failed");
   });
+
+  it("redirects with consent_required when user has not consented", async () => {
+    const state = makeState();
+    pool.query.mockResolvedValueOnce({ rows: [{ is_consented_spotify: false }] });
+
+    const res = await request(app).get(`/api/spotify/callback?code=abc&state=${state}`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain("error=consent_required");
+    expect(spotifyService.exchangeCode).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/spotify/status", () => {
   it("returns connected: false when no account", async () => {
-    pool.query.mockResolvedValueOnce({ rows: [] });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app).get("/api/spotify/status");
 
@@ -115,6 +134,7 @@ describe("GET /api/spotify/status", () => {
 
   it("returns connected: true with display_name when account exists", async () => {
     pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
       .mockResolvedValueOnce({ rows: [{ expires_at: new Date(Date.now() + 60 * 60 * 1000) }] }) // status check
       .mockResolvedValueOnce({ rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 60 * 60 * 1000) }] }) // getValidAccessToken
       .mockResolvedValueOnce({ rows: [{ scopes: "streaming user-modify-playback-state" }] }); // scopes check
@@ -131,7 +151,9 @@ describe("GET /api/spotify/status", () => {
 
 describe("GET /api/spotify/now-playing", () => {
   it("returns 403 when not connected", async () => {
-    pool.query.mockResolvedValueOnce({ rows: [] });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app).get("/api/spotify/now-playing");
 
@@ -140,9 +162,11 @@ describe("GET /api/spotify/now-playing", () => {
   });
 
   it("returns playing: false when nothing is playing", async () => {
-    pool.query.mockResolvedValueOnce({
-      rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
-    });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({
+        rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
+      });
     spotifyService.getNowPlaying.mockResolvedValue(null);
 
     const res = await request(app).get("/api/spotify/now-playing");
@@ -152,9 +176,11 @@ describe("GET /api/spotify/now-playing", () => {
   });
 
   it("returns track info when something is playing", async () => {
-    pool.query.mockResolvedValueOnce({
-      rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
-    });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({
+        rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
+      });
     spotifyService.getNowPlaying.mockResolvedValue({
       is_playing: true,
       progress_ms: 1000,
@@ -178,7 +204,9 @@ describe("GET /api/spotify/now-playing", () => {
 
 describe("GET /api/spotify/playlists", () => {
   it("returns 403 when not connected", async () => {
-    pool.query.mockResolvedValueOnce({ rows: [] });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app).get("/api/spotify/playlists");
 
@@ -186,9 +214,11 @@ describe("GET /api/spotify/playlists", () => {
   });
 
   it("returns formatted playlists", async () => {
-    pool.query.mockResolvedValueOnce({
-      rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
-    });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({
+        rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],
+      });
     spotifyService.getUserPlaylists.mockResolvedValue([
       { id: "p1", name: "Chill", uri: "spotify:playlist:p1", tracks: { total: 10 }, images: [{ url: "http://img.jpg" }] },
     ]);
@@ -204,12 +234,14 @@ describe("GET /api/spotify/playlists", () => {
 
 describe("POST /api/spotify/play", () => {
   it("returns 400 when context_uri is missing", async () => {
+    pool.query.mockResolvedValueOnce(SPOTIFY_CONSENT_OK);
     const res = await request(app).post("/api/spotify/play").send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 for non-playlist spotify URIs", async () => {
+    pool.query.mockResolvedValueOnce(SPOTIFY_CONSENT_OK);
     const res = await request(app)
       .post("/api/spotify/play")
       .send({ context_uri: "spotify:album:abcabcabcabcabcabcabc" });
@@ -218,7 +250,9 @@ describe("POST /api/spotify/play", () => {
   });
 
   it("returns 403 NOT_ALLOWED when playlist is not in curated list", async () => {
-    pool.query.mockResolvedValueOnce({ rows: [] });
+    pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
+      .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .post("/api/spotify/play")
@@ -230,6 +264,7 @@ describe("POST /api/spotify/play", () => {
 
   it("returns 403 NOT_CONNECTED when curated but Spotify not linked", async () => {
     pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
       .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
       .mockResolvedValueOnce({ rows: [] });
 
@@ -242,6 +277,7 @@ describe("POST /api/spotify/play", () => {
 
   it("returns 204 on successful playback start", async () => {
     pool.query
+      .mockResolvedValueOnce(SPOTIFY_CONSENT_OK)
       .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] })
       .mockResolvedValueOnce({
         rows: [{ access_token: Buffer.from("tok"), refresh_token: Buffer.from("ref"), expires_at: new Date(Date.now() + 3600 * 1000) }],

@@ -163,15 +163,30 @@ export function useYouTubePlayer() {
 
   // ── Controls ────────────────────────────────────────────────────────────────
 
-  const playPlaylist = useCallback((playlistId: string) => {
+  const playPlaylist = useCallback((rawId: string) => {
     if (!playerRef.current) throw new Error("Player not ready");
-    playlistRef.current = playlistId;
-    // Playlist IDs start with PL, RD, UU, FL, LL, WL — anything else is a video ID
-    const isPlaylist = /^(PL|RD|UU|FL|LL|WL)/i.test(playlistId);
-    if (isPlaylist) {
-      playerRef.current.loadPlaylist({ listType: "playlist", list: playlistId, index: 0, startSeconds: 0 });
+
+    // Normalise: extract ID from full YouTube URLs if needed
+    let id = rawId.trim();
+    if (id.includes("youtube.com") || id.includes("youtu.be")) {
+      try {
+        const url = new URL(id);
+        // Playlist takes priority over video
+        id = url.searchParams.get("list") ?? url.searchParams.get("v") ?? id;
+        // Short URL: youtu.be/<videoId>
+        if (!url.searchParams.get("list") && !url.searchParams.get("v")) {
+          id = url.pathname.replace("/", "");
+        }
+      } catch { /* malformed URL — use as-is */ }
+    }
+
+    playlistRef.current = id;
+    // YouTube video IDs are exactly 11 base64url chars. Everything else is a playlist ID.
+    const isVideoId = /^[A-Za-z0-9_-]{11}$/.test(id);
+    if (isVideoId) {
+      playerRef.current.loadVideoById(id);
     } else {
-      (playerRef.current as unknown as { loadVideoById: (id: string) => void }).loadVideoById(playlistId);
+      playerRef.current.loadPlaylist({ listType: "playlist", list: id, index: 0, startSeconds: 0 });
     }
   }, []);
 

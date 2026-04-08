@@ -10,6 +10,15 @@ jest.mock("../services/encryption.service", () => ({
   encrypt: jest.fn(async (v) => Buffer.from(v)),
   decrypt: jest.fn(async (v) => v.toString()),
 }));
+// better-auth/crypto ships ESM; Jest can't load it — use bcrypt in tests.
+// Plain functions (not jest.fn) so implementations survive jest resetMocks: true.
+jest.mock("better-auth/crypto", () => {
+  const bcrypt = require("bcrypt");
+  return {
+    verifyPassword: async ({ password, hash }) => bcrypt.compare(password, hash),
+    hashPassword: async (plain) => bcrypt.hash(plain, 10),
+  };
+});
 
 const pool = require("../config/db");
 
@@ -22,6 +31,7 @@ app.use("/api/users", require("../routes/users.routes"));
 describe("GET /api/users/me", () => {
   it("returns 200 with user profile when authenticated", async () => {
     pool.query
+      .mockResolvedValueOnce({ rows: [{ "?column?": 1 }] }) // ensureAppUserRow — users row exists
       .mockResolvedValueOnce({
         rows: [{
           user_id: TEST_USER.user_id,
@@ -50,7 +60,10 @@ describe("GET /api/users/me", () => {
   });
 
   it("returns 404 when user not in users table", async () => {
-    pool.query.mockResolvedValueOnce({ rows: [] });
+    pool.query
+      .mockResolvedValueOnce({ rows: [] }) // ensureAppUserRow — no users row
+      .mockResolvedValueOnce({ rows: [] }) // ensureAppUserRow — no "user" row → skip insert
+      .mockResolvedValueOnce({ rows: [] }); // getMe SELECT users → not found
 
     const res = await request(app).get("/api/users/me");
     expect(res.status).toBe(404);

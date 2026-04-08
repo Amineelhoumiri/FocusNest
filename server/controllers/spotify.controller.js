@@ -52,7 +52,8 @@ const getAuthUrl = (req, res) => {
             process.env.JWT_SECRET,
             { expiresIn: "10m" }
         );
-        const url = spotifyService.getAuthUrl(state);
+        const requestHost = `${req.protocol}://${req.get("host")}`;
+        const url = spotifyService.getAuthUrl(state, requestHost);
         console.log("🎵 Spotify auth URL generated:", url);
         return res.json({ url });
     } catch (err) {
@@ -67,7 +68,7 @@ const getAuthUrl = (req, res) => {
 
 const handleCallback = async (req, res) => {
     const { code, state, error } = req.query;
-    const clientUrl = process.env.CLIENT_URL || "http://localhost:8080";
+    const clientUrl = process.env.CLIENT_URL || `${req.protocol}://${req.get("host")}`;
 
     console.log("🎵 Spotify callback hit — code:", !!code, "| state:", !!state, "| error:", error || "none");
 
@@ -93,10 +94,21 @@ const handleCallback = async (req, res) => {
             throw e;
         }
 
+        const consentCheck = await pool.query(
+            `SELECT is_consented_spotify FROM users WHERE user_id = $1`,
+            [userId]
+        );
+        if (!consentCheck.rows[0]?.is_consented_spotify) {
+            console.warn("🎵 [callback] Spotify OAuth blocked — user has not consented to Spotify integration:", userId);
+            return res.redirect(`${clientUrl}/spotify?error=consent_required`);
+        }
+
         // Step 2: Exchange auth code for tokens
+        // The redirect URI must match what was used in getAuthUrl exactly
+        const requestHost = `${req.protocol}://${req.get("host")}`;
         let tokens;
         try {
-            tokens = await spotifyService.exchangeCode(code);
+            tokens = await spotifyService.exchangeCode(code, requestHost);
         } catch (e) {
             console.error("🔴 [callback] Code exchange failed:", e.message, e.response?.data || "");
             throw e;
@@ -163,8 +175,8 @@ const handleCallback = async (req, res) => {
 
     } catch (err) {
         console.error("🔴 handleCallback top-level error:", err.message, err.stack?.split("\n")[1] || "");
-        const clientUrl = process.env.CLIENT_URL || "http://localhost:8080";
-        return res.redirect(`${clientUrl}/spotify?error=callback_failed`);
+        const errClientUrl = process.env.CLIENT_URL || `${req.protocol}://${req.get("host")}`;
+        return res.redirect(`${errClientUrl}/spotify?error=callback_failed`);
     }
 };
 

@@ -5,11 +5,29 @@ import { ThemeProvider } from "@/context/ThemeContext";
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
+vi.mock("@/context/AuthContext", () => ({
+  useAuth: () => ({
+    user: {
+      user_id: "00000000-0000-4000-8000-000000000001",
+      full_name: "Test User",
+      email: "test@example.com",
+      is_admin: false,
+      is_consented_ai: true,
+    },
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    register: vi.fn(),
+    updateLocalUser: vi.fn(),
+  }),
+}));
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-// jsdom doesn't implement scrollIntoView
+// jsdom doesn't implement scrollIntoView / scrollTo
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
+window.scrollTo = vi.fn();
 
 import Chat from "@/pages/Chat";
 

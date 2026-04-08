@@ -1,15 +1,19 @@
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Moon, Sun, Headphones, Play, Pause, SkipBack, SkipForward, Music2 } from "lucide-react";
+import { Moon, Sun, Menu, Maximize2, Minimize2 } from "lucide-react";
 import { IconSettings } from "@tabler/icons-react";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { ProfileDropdown } from "@/components/ui/profile-dropdown";
+import { NavbarMusicDropdown } from "@/components/ui/navbar-music-dropdown";
+import { useZenMode } from "@/context/ZenModeContext";
 import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useSpotifyPlayback } from "@/context/SpotifyPlaybackContext";
+  MUSIC_SOURCE_CHANGED_EVENT,
+  MUSIC_SOURCE_STORAGE_KEY,
+  readMusicPageSource,
+  type MusicPageSource,
+} from "@/lib/music-source";
 
 // ─── Route Meta ───────────────────────────────────────────────────────────────
 
@@ -18,7 +22,7 @@ const ROUTE_META: Record<string, { title: string; crumb: string }> = {
   "/tasks":     { title: "Tasks",      crumb: "FocusNest / Tasks"     },
   "/sessions":  { title: "Sessions",   crumb: "FocusNest / Sessions"  },
   "/chat":      { title: "Finch",      crumb: "FocusNest / Finch"     },
-  "/spotify":   { title: "Spotify",    crumb: "FocusNest / Spotify"   },
+  "/spotify":   { title: "Music",      crumb: "FocusNest / Music"     },
   "/pricing":   { title: "Plans",      crumb: "FocusNest / Plans"     },
   "/settings":  { title: "Settings",   crumb: "FocusNest / Settings"  },
   "/profile":   { title: "Profile",    crumb: "FocusNest / Profile"   },
@@ -31,64 +35,44 @@ function useRouteMeta() {
   return ROUTE_META[pathname] ?? { title: "FocusNest", crumb: "FocusNest" };
 }
 
-// ─── Binaural Beat Hook ────────────────────────────────────────────────────────
+function useMusicPageSourceChip() {
+  const { pathname } = useLocation();
+  const [source, setSource] = useState<MusicPageSource>(() =>
+    pathname === "/spotify" ? readMusicPageSource() : "free"
+  );
 
-function useBinauralBeat() {
-  const ctxRef = useRef<AudioContext | null>(null);
-  const [active, setActive] = useState(false);
-  const toggle = () => {
-    if (active) {
-      ctxRef.current?.close();
-      ctxRef.current = null;
-      setActive(false);
-    } else {
-      const ctx = new AudioContext();
-      const leftOsc  = ctx.createOscillator();
-      const rightOsc = ctx.createOscillator();
-      const gainL    = ctx.createGain();
-      const gainR    = ctx.createGain();
-      const merger   = ctx.createChannelMerger(2);
-      leftOsc.frequency.value  = 200;
-      rightOsc.frequency.value = 210;
-      gainL.gain.value = 0.06;
-      gainR.gain.value = 0.06;
-      leftOsc.connect(gainL);
-      rightOsc.connect(gainR);
-      gainL.connect(merger, 0, 0);
-      gainR.connect(merger, 0, 1);
-      merger.connect(ctx.destination);
-      leftOsc.start();
-      rightOsc.start();
-      ctxRef.current = ctx;
-      setActive(true);
-    }
-  };
-  return { active, toggle };
+  useEffect(() => {
+    if (pathname !== "/spotify") return;
+    const sync = () => setSource(readMusicPageSource());
+    sync();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === MUSIC_SOURCE_STORAGE_KEY || e.key === null) sync();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(MUSIC_SOURCE_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(MUSIC_SOURCE_CHANGED_EVENT, sync);
+    };
+  }, [pathname]);
+
+  return pathname === "/spotify" ? source : null;
 }
 
 // ─── Navbar ───────────────────────────────────────────────────────────────────
 
 interface NavbarProps {
   minimal?: boolean;
+  onMenuClick?: () => void;
 }
 
-const Navbar = ({ minimal }: NavbarProps) => {
+const Navbar = ({ minimal, onMenuClick }: NavbarProps) => {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { active: soundActive, toggle: toggleSound } = useBinauralBeat();
-  const spotify = useSpotifyPlayback();
   const { title } = useRouteMeta();
-  const [spotifyConnected, setSpotifyConnected] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    fetch("/api/spotify/status", { credentials: "include" })
-      .then((r) => r.json())
-      .then((d: { connected?: boolean }) => setSpotifyConnected(!!d.connected))
-      .catch(() => setSpotifyConnected(false));
-  }, [user, pathname]);
+  const musicPageSource = useMusicPageSourceChip();
   // Clock state
   const [time, setTime] = useState(() => {
     const now = new Date();
@@ -115,9 +99,7 @@ const Navbar = ({ minimal }: NavbarProps) => {
   };
 
   const isDark = theme === "dark";
-
-  const spotifyTrack = spotify.playerState?.track_window?.current_track;
-  const spotifyPlaying = Boolean(spotify.playerState && !spotify.playerState.paused);
+  const { zenMode, toggleZenMode } = useZenMode();
 
   return (
     <motion.header
@@ -137,9 +119,31 @@ const Navbar = ({ minimal }: NavbarProps) => {
           : "0.5px solid rgba(83,74,183,0.10)",
       }}
     >
-      {/* Left — Page title */}
+      {/* Hamburger — opens nav drawer on mobile only; hidden in zen mode and on md+ screens */}
+      {!minimal && !zenMode && (
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.92 }}
+          onClick={onMenuClick}
+          aria-label="Open menu"
+          className="flex items-center justify-center shrink-0"
+          style={{
+            width: "36px",
+            height: "36px",
+            borderRadius: "8px",
+            background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)",
+            color: isDark ? "rgba(255,255,255,0.55)" : "rgba(83,74,183,0.7)",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <Menu style={{ width: "18px", height: "18px" }} />
+        </motion.button>
+      )}
+
+      {/* Left — Page title (min-w-0 so flex row can shrink; avoids pushing profile off-screen on mobile) */}
       <div
-        className="flex-1"
+        className="min-w-0 flex-1 truncate"
         style={{
           fontSize: "15px",
           fontWeight: 600,
@@ -151,6 +155,33 @@ const Navbar = ({ minimal }: NavbarProps) => {
             Finch
             <span style={{ color: isDark ? "#a78bfa" : "#7c3aed" }}>.</span>
           </span>
+        ) : musicPageSource != null ? (
+          <span className="inline-flex min-w-0 max-w-[min(100%,520px)] items-center gap-2">
+            <span className="truncate">{title}</span>
+            <span
+              className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+              style={{
+                background:
+                  musicPageSource === "spotify"
+                    ? "rgba(29,185,84,0.14)"
+                    : isDark
+                      ? "rgba(124,111,247,0.2)"
+                      : "rgba(83,74,183,0.1)",
+                color:
+                  musicPageSource === "spotify"
+                    ? "#1DB954"
+                    : isDark
+                      ? "#c4b5fd"
+                      : "#534AB7",
+                border:
+                  musicPageSource === "spotify"
+                    ? "1px solid rgba(29,185,84,0.28)"
+                    : "1px solid hsl(var(--primary) / 0.22)",
+              }}
+            >
+              {musicPageSource === "spotify" ? "Spotify" : "Free"}
+            </span>
+          </span>
         ) : (
           title
         )}
@@ -158,141 +189,30 @@ const Navbar = ({ minimal }: NavbarProps) => {
 
       {/* Right — action cluster */}
       {!minimal && user && (
-        <div className="flex items-center" style={{ gap: "8px" }}>
-          {/* Music & focus sounds — popover (sm+) */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.94 }}
-                title="Music and focus sounds"
-                className="hidden sm:flex items-center justify-center"
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "7px",
-                  cursor: "pointer",
-                  background: soundActive || spotifyPlaying
-                    ? "rgba(124,111,247,0.18)"
-                    : isDark
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(83,74,183,0.08)",
-                  color: soundActive || spotifyPlaying
-                    ? "#7c6ff7"
-                    : isDark
-                      ? "rgba(255,255,255,0.45)"
-                      : "rgba(83,74,183,0.6)",
-                  border: "none",
-                }}
-              >
-                <Headphones style={{ width: "14px", height: "14px" }} />
-              </motion.button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className="w-[min(100vw-2rem,20rem)] rounded-xl border-border/30 p-0 shadow-xl overflow-hidden"
+        <div className="flex shrink-0 items-center" style={{ gap: "8px" }}>
+          {zenMode && (
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={toggleZenMode}
+              title="Exit Zen mode"
               style={{
-                background: isDark ? "hsl(240 22% 9% / 0.96)" : "hsl(var(--card) / 0.96)",
-                backdropFilter: "blur(16px)",
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "4px 12px", borderRadius: "20px",
+                fontSize: "12px", fontWeight: 600,
+                background: "rgba(124,111,247,0.15)",
+                color: "#7c6ff7", border: "1px solid rgba(124,111,247,0.25)", cursor: "pointer",
               }}
             >
-              <div className="px-3 pt-3 pb-2 border-b border-border/20">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Music
-                </p>
-                <p className="text-xs text-muted-foreground/80 mt-0.5 leading-snug">
-                  Spotify (curated focus only) or free sounds on the Music page.
-                </p>
-              </div>
-
-              <div className="p-3 space-y-3">
-                {/* Spotify mini transport */}
-                {spotifyConnected && !spotify.error && !spotify.ready ? (
-                  <p className="text-[11px] text-muted-foreground leading-snug">
-                    Starting Spotify player… Open the Music page if this hangs.
-                  </p>
-                ) : spotifyConnected && !spotify.error && spotify.ready ? (
-                  <div className="rounded-lg border border-border/25 bg-muted/30 px-2.5 py-2 space-y-2">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-foreground truncate">
-                        {spotifyTrack?.name ?? "Nothing playing"}
-                      </p>
-                      {spotifyTrack?.artists?.[0] && (
-                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">
-                          {spotifyTrack.artists.map((a) => a.name).join(", ")}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => spotify.prevTrack()}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-foreground/60 hover:bg-muted/80"
-                        aria-label="Previous track"
-                      >
-                        <SkipBack className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => (spotifyPlaying ? spotify.pause() : spotify.resume())}
-                        className="h-9 w-9 rounded-full flex items-center justify-center text-white bg-[#1DB954] hover:opacity-90"
-                        aria-label={spotifyPlaying ? "Pause" : "Play"}
-                      >
-                        {spotifyPlaying ? (
-                          <Pause className="w-4 h-4 fill-current" />
-                        ) : (
-                          <Play className="w-4 h-4 fill-current ml-0.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => spotify.nextTrack()}
-                        className="h-8 w-8 rounded-full flex items-center justify-center text-foreground/60 hover:bg-muted/80"
-                        aria-label="Next track"
-                      >
-                        <SkipForward className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ) : spotifyConnected && spotify.error ? (
-                  <p className="text-[11px] text-destructive/90 leading-snug">{spotify.error}</p>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground leading-snug">
-                    Connect Spotify Premium on the Music page to control playback here.
-                  </p>
-                )}
-
-                <Link
-                  to="/spotify"
-                  className="flex items-center justify-center gap-2 rounded-lg py-2 text-xs font-medium bg-primary/12 text-primary hover:bg-primary/18 transition-colors"
-                >
-                  <Music2 className="w-3.5 h-3.5" />
-                  Open Focus Sounds
-                </Link>
-
-                <div className="rounded-lg border border-border/25 bg-muted/20 px-2.5 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[11px] font-medium text-foreground">Binaural focus tones</p>
-                      <p className="text-[10px] text-muted-foreground">10 Hz · use headphones</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={toggleSound}
-                      className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-md border transition-colors ${
-                        soundActive
-                          ? "border-primary/40 bg-primary/15 text-primary"
-                          : "border-border/40 text-muted-foreground hover:bg-muted/50"
-                      }`}
-                    >
-                      {soundActive ? "Stop" : "Start"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
+              <Minimize2 style={{ width: "12px", height: "12px" }} />
+              Exit Zen
+            </motion.button>
+          )}
+          {!zenMode && <>
+          {/* Music chip is wide — hide below sm so profile & sign-out stay visible */}
+          <div className="hidden sm:block">
+            <NavbarMusicDropdown />
+          </div>
 
           {/* Theme toggle */}
           <motion.button
@@ -326,9 +246,9 @@ const Navbar = ({ minimal }: NavbarProps) => {
               : <Moon style={{ width: "14px", height: "14px" }} />}
           </motion.button>
 
-          {/* Clock pill */}
+          {/* Clock pill — desktop only */}
           <div
-            className="flex items-center"
+            className="hidden sm:flex items-center"
             style={{
               padding: "4px 10px",
               borderRadius: "20px",
@@ -337,9 +257,7 @@ const Navbar = ({ minimal }: NavbarProps) => {
               gap: "6px",
             }}
           >
-            <motion.div
-              animate={{ scale: [1, 1.4, 1], opacity: [1, 0.4, 1] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            <div
               style={{
                 width: "6px",
                 height: "6px",
@@ -359,13 +277,33 @@ const Navbar = ({ minimal }: NavbarProps) => {
             </span>
           </div>
 
-          {/* Settings icon button */}
+          {/* Zen mode toggle — hide on xs to save navbar space */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.94 }}
+            onClick={toggleZenMode}
+            title="Enter Zen mode — distraction-free focus"
+            className="hidden sm:flex items-center justify-center"
+            style={{
+              width: "28px",
+              height: "28px",
+              borderRadius: "7px",
+              cursor: "pointer",
+              background: isDark ? "rgba(255,255,255,0.06)" : "rgba(83,74,183,0.08)",
+              color: isDark ? "rgba(255,255,255,0.45)" : "rgba(83,74,183,0.6)",
+              border: "none",
+            }}
+          >
+            <Maximize2 style={{ width: "13px", height: "13px" }} />
+          </motion.button>
+
+          {/* Settings icon button — desktop only */}
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.94 }}
             onClick={() => navigate("/settings")}
             title="Settings"
-            className="flex items-center justify-center"
+            className="hidden sm:flex items-center justify-center"
             style={{
               width: "30px",
               height: "30px",
@@ -389,62 +327,20 @@ const Navbar = ({ minimal }: NavbarProps) => {
             <IconSettings size={15} stroke={1.4} />
           </motion.button>
 
-          {/* Avatar with dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <motion.button
-                whileHover={{ scale: 1.06 }}
-                whileTap={{ scale: 0.94 }}
-                className="flex items-center justify-center overflow-hidden"
-                style={{
-                  width: "30px",
-                  height: "30px",
-                  borderRadius: "50%",
-                  background: "#7c6ff7",
-                  color: "#fff",
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  border: "none",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                }}
-              >
-                {user.profile_photo_url ? (
-                  <img
-                    src={user.profile_photo_url}
-                    alt="Profile"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                ) : (
-                  <span>{getInitials()}</span>
-                )}
-              </motion.button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-44 rounded-xl border-border/20 shadow-xl"
-              style={{
-                background: isDark
-                  ? "hsl(240 22% 9% / 0.92)"
-                  : "hsl(var(--card) / 0.92)",
-                backdropFilter: "blur(20px)",
-              }}
-            >
-              <DropdownMenuItem
-                onClick={() => navigate("/profile")}
-                className="cursor-pointer text-sm text-foreground/80 rounded-lg focus:bg-primary/8 focus:text-primary"
-              >
-                Profile
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-border/20" />
-              <DropdownMenuItem
-                onClick={logout}
-                className="cursor-pointer text-sm text-red-400/80 rounded-lg focus:text-red-400 focus:bg-red-500/10"
-              >
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Profile dropdown */}
+          <ProfileDropdown
+            variant="compact"
+            data={{
+              name: user.full_name,
+              email: user.email,
+              avatarUrl: user.profile_photo_url ?? null,
+            }}
+            onLogout={async () => {
+              await logout();
+              navigate("/login");
+            }}
+          />
+          </>}
         </div>
       )}
     </motion.header>

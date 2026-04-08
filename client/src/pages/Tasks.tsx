@@ -415,7 +415,7 @@ const KanbanColumn = ({
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
           <span style={{
             fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
-            color: isLight ? "rgba(83,74,183,0.55)" : "rgba(255,255,255,0.32)",
+            color: isLight ? "rgba(83,74,183,0.80)" : "rgba(255,255,255,0.50)",
           }}>
             {label}
           </span>
@@ -520,6 +520,33 @@ const Tasks = () => {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // ── Mobile column tab bar ─────────────────────────────────────────────────
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const colRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [activeColIndex, setActiveColIndex] = useState(0);
+
+  useEffect(() => {
+    const el = boardScrollRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const idx = colRefs.current.indexOf(entry.target as HTMLDivElement);
+            if (idx !== -1) setActiveColIndex(idx);
+          }
+        });
+      },
+      { root: el, threshold: 0.5 }
+    );
+    colRefs.current.forEach((ref) => { if (ref) observer.observe(ref); });
+    return () => observer.disconnect();
+  }, []);
+
+  const scrollToCol = (idx: number) => {
+    colRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+  };
+
   const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch("/api/tasks");
@@ -554,6 +581,19 @@ const Tasks = () => {
   }, []);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  // Keyboard shortcut: N to open New Task dialog
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const dialogOpen = showAddDialog || editTask !== null;
+      if (e.key === "n" && !dialogOpen && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        setShowAddDialog(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [showAddDialog, editTask]);
 
   // Auto-move tasks to Done when subtasks reach 100%
   useEffect(() => {
@@ -761,33 +801,71 @@ const Tasks = () => {
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 0 20px 0", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <h2 style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)" }}>
+      {/* Header — stack on narrow viewports; full-width CTA on xs */}
+      <div
+        className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between sm:pb-5"
+        style={{ flexShrink: 0 }}
+      >
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <h2
+            className="truncate text-[1.35rem] font-bold sm:text-2xl"
+            style={{ color: isLight ? "#1a1830" : "rgba(255,255,255,0.90)" }}
+          >
             Tasks
           </h2>
-          <span style={{
-            fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 20,
-            background: isLight ? "rgba(83,74,183,0.10)" : "rgba(124,111,247,0.15)",
-            color: isLight ? "#534AB7" : "#a89cf7",
-            border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(124,111,247,0.25)",
-          }}>
-            {tasksWithBlocked.length} task{tasksWithBlocked.length !== 1 ? "s" : ""}
+          <span
+            className="shrink-0 text-[10px] font-semibold sm:text-[11px]"
+            style={{
+              padding: "3px 8px",
+              borderRadius: 20,
+              background: isLight ? "rgba(83,74,183,0.10)" : "rgba(124,111,247,0.15)",
+              color: isLight ? "#534AB7" : "#a89cf7",
+              border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(124,111,247,0.25)",
+            }}
+          >
+            {tasksWithBlocked.length}
+          </span>
+          <span
+            className="hidden text-[11px] font-semibold opacity-80 sm:inline"
+            style={{ color: isLight ? "#534AB7" : "#a89cf7" }}
+          >
+            task{tasksWithBlocked.length !== 1 ? "s" : ""}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
           <motion.button
-            whileHover={{ scale: 1.03 }}
+            whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
             onClick={() => setShowAddDialog(true)}
+            className="flex w-full items-center justify-center gap-2 sm:w-auto sm:justify-center"
             style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "8px 16px", borderRadius: 12, fontSize: 13, fontWeight: 600,
-              background: "#7c6ff7", color: "#fff", border: "none", cursor: "pointer",
-              boxShadow: "0 4px 16px rgba(124,111,247,0.35)",
-            }}>
-            <Plus style={{ width: 15, height: 15 }} /> Add Task
+              padding: "8px 14px",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 600,
+              background: isLight ? "rgba(124,111,247,0.12)" : "rgba(124,111,247,0.18)",
+              color: isLight ? "#534AB7" : "#a89cf7",
+              border: isLight ? "1px solid rgba(124,111,247,0.28)" : "1px solid rgba(124,111,247,0.32)",
+              cursor: "pointer",
+            }}
+          >
+            <Plus style={{ width: 14, height: 14 }} />
+            <span className="sm:inline">New Task</span>
+            <span
+              className="hidden sm:inline"
+              style={{
+                fontSize: 10,
+                fontWeight: 500,
+                opacity: 0.55,
+                padding: "1px 5px",
+                borderRadius: 5,
+                background: isLight ? "rgba(83,74,183,0.10)" : "rgba(255,255,255,0.08)",
+                border: isLight ? "1px solid rgba(83,74,183,0.18)" : "1px solid rgba(255,255,255,0.12)",
+                letterSpacing: "0.02em",
+              }}
+            >
+              N
+            </span>
           </motion.button>
         </div>
       </div>
@@ -798,6 +876,33 @@ const Tasks = () => {
           <Loader2 style={{ width: 32, height: 32, color: "#7c6ff7" }} className="animate-spin" />
         </div>
       ) : (
+        <>
+        {/* ── Mobile column tab bar (hidden on lg+) ───────────────────────── */}
+        <div className="flex lg:hidden mb-3 gap-1 rounded-xl p-1" style={{ background: isLight ? "rgba(83,74,183,0.07)" : "rgba(255,255,255,0.05)" }}>
+          {COLUMNS.map((col, i) => {
+            const count = tasksWithBlocked.filter(t => t.column === col.id).length;
+            const isActive = activeColIndex === i;
+            return (
+              <button
+                key={col.id}
+                onClick={() => scrollToCol(i)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{
+                  background: isActive ? (isLight ? "rgba(124,111,247,0.18)" : "rgba(124,111,247,0.22)") : "transparent",
+                  color: isActive ? (isLight ? "#534AB7" : "#c4b5fd") : (isLight ? "rgba(83,74,183,0.45)" : "rgba(255,255,255,0.35)"),
+                }}
+              >
+                <span>{col.label}</span>
+                {count > 0 && (
+                  <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none" style={{ background: isActive ? (isLight ? "rgba(83,74,183,0.15)" : "rgba(255,255,255,0.12)") : "transparent" }}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
         <DndContext
           sensors={sensors}
           collisionDetection={closestCorners}
@@ -805,11 +910,20 @@ const Tasks = () => {
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
         >
-          <div style={{ display: "flex", gap: 12, paddingBottom: 24, alignItems: "flex-start" }}>
-            {COLUMNS.map((col) => {
+          {/* Mobile: full-width snap scroll one column at a time; lg+: 4-column grid */}
+          <div
+            ref={boardScrollRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-visible pb-6 [-webkit-overflow-scrolling:touch] lg:grid lg:grid-cols-4 lg:gap-3 lg:overflow-visible lg:snap-none"
+            style={{ alignItems: "flex-start" }}
+          >
+            {COLUMNS.map((col, colIdx) => {
               const colTasks = tasksWithBlocked.filter(t => t.column === col.id);
               return (
-                <div key={col.id} style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+                <div
+                  key={col.id}
+                  ref={el => { colRefs.current[colIdx] = el; }}
+                  className="flex w-[calc(100vw-1.5rem)] shrink-0 snap-start flex-col lg:w-auto lg:min-w-0 lg:shrink"
+                >
                   <KanbanColumn
                     colId={col.id}
                     label={col.label}
@@ -877,6 +991,7 @@ const Tasks = () => {
             })() : null}
           </DragOverlay>
         </DndContext>
+        </>
       )}
 
       {/* Add/Edit dialog modal */}
