@@ -35,6 +35,10 @@ const AppLayout = () => {
   }
   if (!user) return <Navigate to="/login" replace />;
 
+  if (user.is_consented_core !== true) {
+    return <Navigate to="/welcome/consent" replace />;
+  }
+
   const isChatPage = location.pathname === "/chat";
   const isFullHeightPage = isChatPage || location.pathname === "/sessions" || location.pathname === "/spotify";
 

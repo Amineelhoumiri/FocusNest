@@ -278,12 +278,19 @@ async function converseWithFinch(messages, userId) {
     const systemPrompt = await getSystemPrompt("conversational_coach", DEFAULT_CONVERSATIONAL_COACH);
     const model = "gpt-5.2";
 
+    // Normalise messages: content may be a string or an array (vision).
+    // Pass through as-is — OpenAI accepts both forms.
+    const normalisedMessages = messages.map((m) => {
+        if (typeof m.content === "string" || Array.isArray(m.content)) return m;
+        return { ...m, content: String(m.content ?? "") };
+    });
+
     try {
         const response = await openai.chat.completions.create({
             model,
             messages: [
                 { role: "system", content: systemPrompt },
-                ...messages,
+                ...normalisedMessages,
             ],
             response_format: { type: "json_object" },
         });

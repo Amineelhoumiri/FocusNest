@@ -77,7 +77,7 @@ export function ProfileDropdown({
       ? [{ label: "Subscription", value: data.subscription, to: "/pricing", icon: <CreditCard className="h-4 w-4" /> }]
       : []),
     { label: "Settings", to: "/settings", icon: <Settings className="h-4 w-4" /> },
-    { label: "Terms & Policies", href: "https://focusnest.app/terms", external: true, icon: <FileText className="h-4 w-4" /> },
+    { label: "Terms & Policies", to: "/terms", icon: <FileText className="h-4 w-4" /> },
   ];
 
   const avatarSrc = data.avatarUrl || FALLBACK_AVATAR;

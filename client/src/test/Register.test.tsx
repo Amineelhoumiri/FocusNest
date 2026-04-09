@@ -6,6 +6,20 @@ vi.mock("@/context/AuthContext", () => ({ useAuth: vi.fn() }));
 vi.mock("@/lib/auth-client", () => ({
   authClient: { signIn: { social: vi.fn() } },
 }));
+vi.mock("@/components/ui/terms-conditions-dialog", () => ({
+  TermsConditionsDialog: ({ onAgreed }: { onAgreed: () => void }) => (
+    <button type="button" data-testid="stub-terms-agree" onClick={() => onAgreed()}>
+      Terms & Conditions
+    </button>
+  ),
+}));
+vi.mock("@/components/ui/privacy-policy-dialog", () => ({
+  PrivacyPolicyDialog: ({ onAgreed }: { onAgreed: () => void }) => (
+    <button type="button" data-testid="stub-privacy-agree" onClick={() => onAgreed()}>
+      Privacy Policy
+    </button>
+  ),
+}));
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return { ...actual, useNavigate: () => vi.fn() };
@@ -29,12 +43,14 @@ const fillStep1 = (container: HTMLElement) => {
   fireEvent.change(screen.getByPlaceholderText("Confirm password"), { target: { value: STRONG_PASS } });
 };
 
-/** Step 1 (privacy) requires Core Data consent before `register` runs */
+/** Step 2: legal pop-ups (stubbed) + Core Data consent before `register` runs */
 const acceptCoreConsent = async () => {
   await waitFor(() => {
-    expect(screen.getByText(/Core Data Processing/i)).toBeTruthy();
+    expect(screen.getByText(/Core data storage/i)).toBeTruthy();
   });
-  const heading = screen.getByText(/Core Data Processing/i);
+  fireEvent.click(screen.getByTestId("stub-terms-agree"));
+  fireEvent.click(screen.getByTestId("stub-privacy-agree"));
+  const heading = screen.getByText(/Core data storage/i);
   const label = heading.closest("label");
   if (!label) throw new Error("Core consent label not found");
   fireEvent.click(label);
@@ -86,7 +102,7 @@ describe("Register page", () => {
   });
 
   it("calls register with correct data on final submit", async () => {
-    const mockRegister = vi.fn().mockResolvedValueOnce(undefined);
+    const mockRegister = vi.fn().mockResolvedValueOnce({ needsEmailVerification: false });
     (useAuth as ReturnType<typeof vi.fn>).mockReturnValue({ register: mockRegister });
 
     const { container } = renderRegister();
@@ -96,7 +112,7 @@ describe("Register page", () => {
     await waitFor(() => expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy());
     await acceptCoreConsent();
 
-    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
+    fireEvent.click(screen.getByRole("button", { name: /create my account/i }));
 
     await waitFor(() => {
       expect(mockRegister).toHaveBeenCalledWith(
@@ -121,7 +137,7 @@ describe("Register page", () => {
     fireEvent.click(screen.getByRole("button", { name: /continue/i }));
     await waitFor(() => expect(screen.getByText(/your privacy, your choice/i)).toBeTruthy());
     await acceptCoreConsent();
-    fireEvent.click(screen.getByRole("button", { name: "Create Account" }));
+    fireEvent.click(screen.getByRole("button", { name: /create my account/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/email already in use/i)).toBeTruthy();
@@ -137,7 +153,7 @@ describe("Register page", () => {
     // Back button is icon-only (ArrowLeft), first button in the footer row
     const buttons = screen.getAllByRole("button");
     const backButton = buttons.find(
-      (btn) => btn.className.includes("w-\\[52px\\]") || (btn.querySelector("svg") && btn.textContent === "")
+      (btn) => btn.className.includes("w-\\[48px\\]") || (btn.querySelector("svg") && btn.textContent === "")
     ) ?? buttons[0];
     fireEvent.click(backButton);
 

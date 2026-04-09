@@ -1,847 +1,274 @@
-import { LegalLayout } from "@/components/legal/LegalLayout";
+import { LegalLayout, type LegalTocItem } from "@/components/legal/LegalLayout";
+
+const PRIVACY_TOC: LegalTocItem[] = [
+  { id: "summary", label: "At a glance" },
+  { id: "who-we-are", label: "1 · Who we are" },
+  { id: "what-we-collect", label: "2 · What we collect" },
+  { id: "storage", label: "3 · Storage & security" },
+  { id: "third-parties", label: "4 · Third parties" },
+  { id: "rights", label: "5 · Your rights" },
+  { id: "retention", label: "6 · Retention" },
+  { id: "cookies", label: "7 · Cookies" },
+  { id: "vulnerable", label: "8 · Vulnerable users" },
+  { id: "changes", label: "9 · Changes" },
+  { id: "contact", label: "10 · Contact" },
+];
 
 const Privacy = () => (
   <LegalLayout
     title="Privacy Policy"
+    subtitle="What we process, how we protect it, third parties involved, and your rights under UK & EU GDPR."
     meta={[
-      { label: "Effective Date", value: "1 April 2026" },
-      { label: "Last Updated", value: "1 April 2026" },
-      {
-        label: "Data Controller",
-        value: "Amine El Houmiri (Academic Project)",
-      },
-      {
-        label: "Legal Basis",
-        value: "General Data Protection Regulation (GDPR) 2018",
-      },
+      { label: "Effective Date", value: "February 2026" },
+      { label: "Version", value: "1.0" },
+      { label: "Data Controller", value: "Amine El Houmiri (Academic Project)" },
+      { label: "Legal Basis", value: "UK GDPR & EU GDPR" },
     ]}
+    toc={PRIVACY_TOC}
   >
-    <h2>1. Introduction</h2>
+    <h2 id="summary">At a glance</h2>
+    <blockquote>
+      <p>
+        <strong>Plain-language summary:</strong> FocusNest is built for ADHD users. We collect
+        only what we need, we never sell your data, you can delete everything instantly, and we
+        are fully transparent about every third-party service we use.
+      </p>
+    </blockquote>
+
+    <h2 id="who-we-are">1. Who We Are</h2>
     <p>
-      Your privacy is a core design principle of FocusNest, not an afterthought.
-      This Privacy Policy explains what data we collect, why we collect it, how
-      we protect it, and what rights you have over it.
-    </p>
-    <p>
-      FocusNest is designed with <strong>Privacy by Design</strong> principles
-      embedded at the architectural level, including pseudonymisation via UUIDv4
-      keys, AES-256 encryption at rest, and TLS 1.2+ for all data in transit.
+      FocusNest is operated by Amine El Houmiri (&quot;we&quot;, &quot;us&quot;,
+      &quot;our&quot;) as data controller under UK GDPR and EU GDPR. Contact:{" "}
+      <a href="mailto:6elhom71@solent.ac.uk" className="text-primary">
+        6elhom71@solent.ac.uk
+      </a>
     </p>
 
-    <h2>2. What Data We Collect</h2>
-    <p>We collect only the minimum data necessary to operate the Service.</p>
-
-    <h3>2.1 Account Data (Required)</h3>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Email address
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Account identification and login
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Hashed password
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Authentication (bcrypt, never stored in plaintext)
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Full name
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Personalisation
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Account creation date
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Audit and security
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Last login timestamp
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              90-day idle purge compliance
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h3>2.2 Task &amp; Session Data (Required)</h3>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Task names and descriptions
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Core app functionality
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Task status and energy level
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Kanban board and activity switching
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Subtask content
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AI breakdown output
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Session start/end times
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Productivity analytics
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Distraction count
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Reflection and observability
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Reflection logs
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Post-session capture
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <blockquote>
-      <p>
-        All task names, subtask content, and reflection logs are stored as{" "}
-        <strong>encrypted blobs</strong> using AES-256. The raw content is never
-        stored in plaintext.
-      </p>
-    </blockquote>
-
-    <h3>2.3 AI Interaction Data (Optional — Requires Consent)</h3>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Task text submitted to OpenAI
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AI task decomposition
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Token usage counts
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Cost tracking and admin visibility
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Model type used
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Technical auditing
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <blockquote>
-      <p>
-        This data is only collected if you explicitly consent to{" "}
-        <strong>AI Processing</strong> during registration. You can withdraw
-        consent at any time in Settings.
-      </p>
-    </blockquote>
-
-    <h3>2.4 Spotify Data (Optional — Requires Consent)</h3>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Spotify user ID
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              SDK authentication
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Access and refresh tokens
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Playback control
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Token expiry and scopes
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Session management
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <blockquote>
-      <p>
-        All Spotify tokens are stored as <strong>encrypted blobs</strong>. This
-        data is only collected if you explicitly consent to{" "}
-        <strong>Spotify Integration</strong> during registration.
-      </p>
-    </blockquote>
-
-    <h3>2.5 Technical Data (Automatic)</h3>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Hashed IP address (not raw IP)
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Security auditing and abuse prevention
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Error logs via Sentry
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Bug detection and system reliability
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Interaction analytics via ContentSquare
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              UX friction identification (rage clicks, navigation loops)
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <blockquote>
-      <p>
-        Raw IP addresses are <strong>never stored</strong>. Only a one-way hash
-        of the IP is retained for security purposes.
-      </p>
-    </blockquote>
-
-    <h2>3. What We Do NOT Collect</h2>
-    <ul>
-      <li>We do not collect raw IP addresses</li>
-      <li>We do not use advertising cookies or tracking pixels</li>
-      <li>We do not sell your data to any third party</li>
-      <li>We do not use your data to train AI models</li>
-      <li>
-        We do not collect sensitive special category data (health records,
-        medical history)
-      </li>
-      <li>We do not collect payment information</li>
-    </ul>
-
-    <h2>4. Legal Basis for Processing</h2>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[20rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data Category
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Legal Basis
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Account data
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Contract (GDPR Art. 6(1)(b)) — necessary to provide the Service
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Task and session data
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Contract (GDPR Art. 6(1)(b)) — core functionality
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AI processing data
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Consent (GDPR Art. 6(1)(a)) — explicit opt-in required
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Spotify data
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Consent (GDPR Art. 6(1)(a)) — explicit opt-in required
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Security and error logs
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Legitimate interests (GDPR Art. 6(1)(f)) — system stability
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h2>5. How We Protect Your Data</h2>
-    <p>FocusNest implements a layered security architecture:</p>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[20rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Layer
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Implementation
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Encryption at rest
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AES-256 via Amazon RDS (covers storage, backups, snapshots,
-              replicas)
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Key management
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AWS Key Management Service (KMS) — FIPS 140-3 Level 3 HSMs. Keys
-              never leave the secure boundary unencrypted.
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Encryption in transit
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              TLS 1.2+ for all connections. Certificates managed via AWS
-              Certificate Manager (ACM).
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Pseudonymisation
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              All database primary keys use UUIDv4 — no sequential integers. Data
-              identity is structurally decoupled from user identity.
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Password security
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              bcrypt hashing with minimum 12 rounds. Passwords never stored in
-              plaintext.
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Session security
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              JWT stored in HttpOnly, Secure, SameSite=Strict cookies. Never
-              accessible via JavaScript.
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Admin data masking
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Task content displayed as{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-                *******
-              </code>{" "}
-              in admin views. Content never exposed to administrators.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h2>6. Third-Party Processors</h2>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
+    <h2 id="what-we-collect">2. What Data We Collect and Why</h2>
+    <h3>Summary table</h3>
+    <div className="not-prose my-6 overflow-x-auto rounded-2xl border border-border/50 bg-card/45 shadow-sm ring-1 ring-border/30 dark:bg-card/30">
       <table className="w-full min-w-[22rem] border-collapse text-sm">
         <thead>
           <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Processor
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Privacy Policy
-            </th>
+            <th className="border-b border-border/55 bg-muted/50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-foreground/90">Data category</th>
+            <th className="border-b border-border/55 bg-muted/50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-foreground/90">Purpose</th>
+            <th className="border-b border-border/55 bg-muted/50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-foreground/90">Legal basis</th>
           </tr>
         </thead>
         <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Amazon Web Services (AWS)
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Cloud hosting, database, encryption
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <a
-                href="https://aws.amazon.com/privacy/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                aws.amazon.com/privacy
-              </a>
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Email address</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Account authentication</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(b) — Contract</td>
           </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              OpenAI
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AI task decomposition (consent required)
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <a
-                href="https://openai.com/enterprise-privacy/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                openai.com/enterprise-privacy
-              </a>
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Hashed password</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Secure login via bcrypt</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(b) — Contract</td>
           </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Spotify
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Audio playback SDK (consent required)
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <a
-                href="https://www.spotify.com/legal/privacy-policy/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                spotify.com/privacy
-              </a>
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Task &amp; subtask content</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Kanban board, AI breakdown</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(b) — Contract</td>
           </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Sentry
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Error monitoring and performance
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <a
-                href="https://sentry.io/privacy/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                sentry.io/privacy
-              </a>
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Focus session logs</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Timing engine, reflections</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(b) — Contract</td>
           </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              ContentSquare
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              UX analytics
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <a
-                href="https://contentsquare.com/privacy-center/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                contentsquare.com/privacy-center
-              </a>
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">AI chat messages</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Task decomposition (optional)</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(a) — Consent</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Spotify OAuth token</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">40Hz audio playback (optional)</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(a) — Consent</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">OpenAI token usage metadata</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Admin cost monitoring (content masked)</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">Art. 6(1)(f) — Legitimate interest</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="px-4 py-2.5 align-top">Last login timestamp</td>
+            <td className="px-4 py-2.5 align-top">90-day idle purge (GDPR Art. 5(1)(e))</td>
+            <td className="px-4 py-2.5 align-top">Art. 6(1)(c) — Legal obligation</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <blockquote>
-      <p>
-        <strong>OpenAI:</strong> Under the OpenAI Enterprise API agreement, your
-        data is not used to train OpenAI models by default. API data is processed
-        under strict confidentiality obligations.
-      </p>
-    </blockquote>
-
-    <h2>7. Data Retention</h2>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
-      <table className="w-full min-w-[18rem] border-collapse text-sm">
-        <thead>
-          <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Data Type
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Retention Period
-            </th>
-          </tr>
-        </thead>
-        <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Account and task data
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Until you delete your account
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Session and reflection logs
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Until you delete your account
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Consent audit log
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              6 years (legal compliance)
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Error logs (Sentry)
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              90 days
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              AI usage logs
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Until account deletion
-            </td>
-          </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Inactive accounts
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <strong>Automatically purged after 90 days of inactivity</strong>{" "}
-              via AWS Lambda
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h2>8. Your Rights Under GDPR</h2>
+    <h3>What we do <em>not</em> collect</h3>
     <p>
-      As a data subject under GDPR, you have the following rights. All rights can
-      be exercised directly within the app:
+      We do <strong>not</strong> collect your name, date of birth, phone number, payment
+      information, or any health or diagnostic data.
     </p>
 
-    <h3>8.1 Right of Access (Art. 15)</h3>
-    <p>
-      You can view all data associated with your account at any time in{" "}
-      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-        Settings → My Data
-      </code>
-      .
-    </p>
-
-    <h3>8.2 Right to Portability (Art. 20) — FR-L-02</h3>
-    <p>
-      You can download a complete export of your data as a structured JSON file
-      at{" "}
-      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-        Settings → Export My Data
-      </code>
-      . This includes your profile, all tasks, sessions, and reflection logs.
-    </p>
-
-    <h3>8.3 Right to Erasure / &quot;Right to be Forgotten&quot; (Art. 17) — FR-L-01</h3>
-    <p>
-      You can permanently delete your account and all associated data via{" "}
-      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-        Settings → Danger Zone → Delete Account &amp; Wipe All Data
-      </code>
-      .
-    </p>
-    <p>This triggers an atomic <strong>CASCADE DELETE</strong> across all tables linked to your User ID, including:</p>
-    <ul>
-      <li>Tasks and subtasks</li>
-      <li>Sessions and reflections</li>
-      <li>Chat history</li>
-      <li>AI usage logs</li>
-      <li>Spotify account data</li>
-      <li>Consent records (except the legally required audit log)</li>
-    </ul>
-    <p>
-      The operation is <strong>immediate and irreversible.</strong> A
-      confirmation step requiring you to type &quot;DELETE&quot; is required
-      before execution.
-    </p>
-
-    <h3>8.4 Right to Withdraw Consent (Art. 7(3))</h3>
-    <p>
-      You can withdraw AI Processing or Spotify Integration consent at any time
-      in{" "}
-      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-        Settings → Privacy
-      </code>
-      . Withdrawal is immediate and stops all future processing under that
-      consent type.
-    </p>
-
-    <h3>8.5 Right to Rectification (Art. 16)</h3>
-    <p>
-      You can update your name and email in{" "}
-      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-        Settings → Account
-      </code>
-      .
-    </p>
-
-    <h3>8.6 Right to Restriction (Art. 18)</h3>
-    <p>
-      If you believe your data is being processed incorrectly, contact us to
-      restrict processing while the matter is investigated.
-    </p>
-
-    <h3>8.7 Right to Object (Art. 21)</h3>
-    <p>
-      You have the right to object to processing based on legitimate interests.
-      Contact us to exercise this right.
-    </p>
-
-    <h2>9. Cookies</h2>
-    <p>FocusNest uses a minimal set of cookies:</p>
-    <div className="not-prose my-4 overflow-x-auto rounded-lg border border-border/60">
+    <h2 id="storage">3. How We Store and Protect Your Data</h2>
+    <h3>Security layers</h3>
+    <div className="not-prose my-6 overflow-x-auto rounded-2xl border border-border/50 bg-card/45 shadow-sm ring-1 ring-border/30 dark:bg-card/30">
       <table className="w-full min-w-[20rem] border-collapse text-sm">
         <thead>
           <tr>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Cookie
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Type
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Purpose
-            </th>
-            <th className="border-b border-border/60 bg-muted/40 px-3 py-2 text-left font-semibold text-foreground">
-              Duration
-            </th>
+            <th className="border-b border-border/55 bg-muted/50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-foreground/90">Layer</th>
+            <th className="border-b border-border/55 bg-muted/50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-foreground/90">Implementation</th>
           </tr>
         </thead>
         <tbody className="text-muted-foreground">
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-                focusnest_session
-              </code>
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              HttpOnly, Secure
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              JWT authentication
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              7 days
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top font-medium text-foreground/85">Encryption at rest</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">AES-256 via Amazon RDS — covers the database, automated backups, read replicas, and snapshots</td>
           </tr>
-          <tr>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
-                sentry_session
-              </code>
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Technical
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Error tracking session
-            </td>
-            <td className="border-b border-border/40 px-3 py-2 align-top">
-              Session
-            </td>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top font-medium text-foreground/85">Encryption in transit</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">TLS 1.2+ on all connections, managed via AWS Certificate Manager</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top font-medium text-foreground/85">Key management</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">AWS KMS with FIPS 140-3 Security Level 3 validated HSMs. Plaintext keys never leave the AWS boundary</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top font-medium text-foreground/85">Pseudonymisation</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">All primary keys use UUIDv4, structurally decoupling data identity from personal identity (GDPR Art. 32)</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="border-b border-border/35 px-4 py-2.5 align-top font-medium text-foreground/85">Authentication</td>
+            <td className="border-b border-border/35 px-4 py-2.5 align-top">bcrypt password hashing. JWTs stored in HttpOnly cookies to prevent XSS attacks</td>
+          </tr>
+          <tr className="transition-colors hover:bg-muted/25">
+            <td className="px-4 py-2.5 align-top font-medium text-foreground/85">Shared responsibility</td>
+            <td className="px-4 py-2.5 align-top">Infrastructure security managed by AWS. Application-level security — encryption, access control — is the responsibility of FocusNest</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <h2 id="third-parties">4. Third-Party Services</h2>
+    <h3>OpenAI (optional)</h3>
     <p>
-      We do not use advertising cookies, tracking pixels, or third-party
-      marketing cookies. No cookie consent banner is required beyond the
-      technical session cookie.
+      Task text is sent to OpenAI only when you enable AI Task Breakdown. Under OpenAI&apos;s
+      Enterprise Privacy Framework, API data is not used to train models by default. Requires
+      explicit consent, withdrawable at any time.
+    </p>
+    <h3>Spotify (optional)</h3>
+    <p>
+      OAuth 2.0 token stored encrypted. We do not access your listening history, playlists, or
+      profile. Governed by Spotify&apos;s own Privacy Policy.
+    </p>
+    <h3>Sentry</h3>
+    <p>
+      Real-time error monitoring for system stability. No personally identifiable task content
+      is transmitted.
+    </p>
+    <h3>Amazon Web Services</h3>
+    <p>
+      Cloud hosting, database storage, and encryption key management for all FocusNest
+      infrastructure.
+    </p>
+    <h3>ContentSquare</h3>
+    <p>
+      Anonymised behavioural analytics to detect UI friction (for example rage clicks and
+      navigation loops). No PII or task content is transmitted.
     </p>
 
-    <h2>10. Children&apos;s Privacy</h2>
+    <h2 id="rights">5. Your Rights Under GDPR</h2>
+
+    <h3>Right to Erasure — Data Nuke (Art. 17)</h3>
     <p>
-      FocusNest is not directed at anyone under the age of 18. We do not
-      knowingly collect personal data from minors. If we become aware that a
-      minor has registered, the account will be deleted immediately.
+      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
+        Settings → Danger Zone → Delete account &amp; wipe all data
+      </code>{" "}
+      triggers an immediate CASCADE DELETE across all records. Irreversible. No residual data
+      is retained.
     </p>
 
-    <h2>11. Changes to This Policy</h2>
+    <h3>Right to Data Portability (Art. 20)</h3>
     <p>
-      We may update this Privacy Policy to reflect changes in the Service or
-      legal requirements. The &quot;Last Updated&quot; date at the top will
-      always reflect the most recent revision. We will notify you of material
-      changes via an in-app notification.
+      Export all your data as a structured JSON file from{" "}
+      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
+        Settings → Export My Data
+      </code>{" "}
+      at any time.
     </p>
 
-    <h2>12. Contact &amp; Complaints</h2>
-    <p>
-      <strong>Data Controller:</strong>
-      <br />
-      Amine El Houmiri
-      <br />
-      Southampton Solent University, School of Technology and Maritime
-      Industries
-      <br />
-      Email: available via university correspondence
-    </p>
-    <p>
-      <strong>Supervisory Authority:</strong>
-      <br />
-      If you believe your data rights have been violated, you have the right to
-      lodge a complaint with the UK Information Commissioner&apos;s Office
-      (ICO):
-    </p>
-    <ul>
-      <li>
-        Website:{" "}
-        <a
-          href="https://ico.org.uk"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          ico.org.uk
-        </a>
-      </li>
-      <li>Phone: 0303 123 1113</li>
-    </ul>
+    <h3>Right to Rectification (Art. 16)</h3>
+    <p>Edit your profile and account details directly within the app at any time.</p>
 
-    <p className="not-prose mt-10 text-center text-sm italic text-muted-foreground">
-      FocusNest — Built with Privacy by Design | GDPR Compliant | Academic
-      Prototype
+    <h3>Right of Access (Art. 15)</h3>
+    <p>Request a full copy of your data by contacting us or using the export feature.</p>
+
+    <h3>Right to Withdraw Consent (Art. 7)</h3>
+    <p>
+      Disable AI processing or Spotify at any time from{" "}
+      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">
+        Settings → Privacy
+      </code>
+      . Does not affect prior lawful processing.
     </p>
+
+    <h3>Right to Complain</h3>
+    <p>
+      Lodge a complaint with the UK ICO at{" "}
+      <a href="https://ico.org.uk" target="_blank" rel="noopener noreferrer">
+        ico.org.uk
+      </a>{" "}
+      or your local EU supervisory authority. Phone: 0303 123 1113.
+    </p>
+
+    <h2 id="retention">6. Data Retention</h2>
+    <p>
+      Data is retained while your account is active. Accounts inactive for 90+ days are
+      automatically deleted via AWS Lambda. You may delete your account instantly at any time
+      using the Data Nuke.
+    </p>
+    <blockquote>
+      <p>
+        <strong>Warning:</strong> Account deletion is permanent and irreversible. No grace
+        period or backup restoration applies.
+      </p>
+    </blockquote>
+
+    <h2 id="cookies">7. Cookies</h2>
+    <p>
+      FocusNest uses one strictly necessary functional cookie — a JWT stored in an HttpOnly
+      cookie for authentication. No advertising cookies, tracking pixels, or cross-site
+      tracking are used.
+    </p>
+
+    <h2 id="vulnerable">8. Vulnerable Users</h2>
+    <p>
+      FocusNest is designed for adults aged 18+. This project received formal ethical clearance
+      via the Solent University Ethics Portal (Appendix C of the project report), with specific
+      protocols for the neurodivergent demographic. Initial validation uses synthetic user
+      simulation to avoid risk to human participants.
+    </p>
+
+    <h2 id="changes">9. Changes to This Policy</h2>
+    <p>
+      Material changes will be communicated by email and displayed on login. Continued use after
+      notification constitutes acceptance. Current version always available at{" "}
+      <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">/privacy</code>.
+    </p>
+
+    <h2 id="contact">10. Contact</h2>
+    <p>
+      <strong>Amine El Houmiri</strong>
+      <br />
+      Southampton Solent University, East Park Terrace, Southampton SO14 0RD
+      <br />
+      Email:{" "}
+      <a href="mailto:6elhom71@solent.ac.uk" className="text-primary">
+        6elhom71@solent.ac.uk
+      </a>
+    </p>
+
+    <div className="not-prose mt-14 rounded-2xl border border-border/50 bg-muted/30 px-5 py-4 text-center text-[13px] text-muted-foreground dark:bg-muted/15">
+      <p className="font-medium text-foreground/90">Document version</p>
+      <p className="mt-1 text-muted-foreground">
+        Version 1.0 · Effective February 2026 · UK GDPR &amp; EU GDPR
+      </p>
+    </div>
   </LegalLayout>
 );
 
