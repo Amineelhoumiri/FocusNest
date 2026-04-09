@@ -16,6 +16,14 @@ const { getTrustedOrigins } = require("./config/allowedOrigins");
 const { toNodeHandler } = require("better-auth/node");
 const { agentDebugLog } = require("./debug-agent-log");
 const auth = require("./auth");
+const {
+  ensureAnonymousCsrfSid,
+  generateCsrfToken,
+  doubleCsrfProtection,
+} = require("./middleware/csrf-config");
+const { apiLimiter, consentWriteLimiter } = require("./middleware/api-rate-limit");
+const authMiddleware = require("./middleware/auth");
+const { recordInitialConsent } = require("./controllers/consent.controller");
 
 const usersRoutes = require("./routes/users.routes");  // Import users routes
 const tasksRoutes = require("./routes/tasks.routes");  // Import tasks routes
@@ -53,6 +61,8 @@ app.use(cors({
 }));
 // Note: express.json() is NOT applied before Better Auth so it can read its own body.
 app.use(cookieParser());
+app.use(ensureAnonymousCsrfSid);
+app.use("/api", apiLimiter);
 
 // Log API hits before Better Auth (the generic logger below never sees /api/auth/*).
 app.use((req, res, next) => {
@@ -81,12 +91,17 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get("/api/csrf-token", (req, res) => {
+  const token = generateCsrfToken(req, res);
+  res.status(200).json({ csrfToken: token });
+});
+app.use(doubleCsrfProtection);
+
 // ─── App consent endpoint (must run before Better Auth catch-all) ───────────
 // FR-L-03 / dissertation spec: POST /api/auth/consent — JSON body, session cookie auth.
-const authMiddleware = require("./middleware/auth");
-const { recordInitialConsent } = require("./controllers/consent.controller");
 app.post(
   "/api/auth/consent",
+  consentWriteLimiter,
   express.json(),
   authMiddleware,
   recordInitialConsent
@@ -125,7 +140,7 @@ console.log("Chat routes mounted. Route count:", chatRoutes?.stack?.length ?? 0)
 app.use("/api/upload", uploadRoutes);
 console.log("Upload routes mounted. Route count:", uploadRoutes?.stack?.length ?? 0);
 
-app.use("/api/consent", consentRoutes);
+app.use("/api/consent", consentWriteLimiter, consentRoutes);
 console.log("Consent routes mounted. Route count:", consentRoutes?.stack?.length ?? 0);
 
 app.use("/api/admin", adminRoutes);
