@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { authClient } from "@/lib/auth-client";
 import AuthSidePanel from "@/components/AuthSidePanel";
+import { toast } from "sonner";
 
 // ─── Input class ───────────────────────────────────────────────────────────────
 const inputClass =
@@ -29,14 +30,20 @@ const SocialBtn = ({
 
 // ─── Login ─────────────────────────────────────────────────────────────────────
 const Login = () => {
+  const [searchParams] = useSearchParams();
+  const verifiedBanner = searchParams.get("verified") === "1";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [shaking, setShaking] = useState(false);
+  const [showResendVerification, setShowResendVerification] = useState(false);
 
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
+
+  if (user) return <Navigate to="/dashboard" replace />;
 
   const shake = () => {
     setShaking(true);
@@ -44,7 +51,7 @@ const Login = () => {
   };
 
   const handleSocialLogin = async (provider: "google") => {
-    const callbackURL = `${window.location.origin}/dashboard`;
+    const callbackURL = `${window.location.origin}/welcome/consent`;
     const result = await authClient.signIn.social({ provider, callbackURL });
     if (result?.error) setError(result.error.message || `${provider} sign-in failed`);
   };
@@ -58,10 +65,13 @@ const Login = () => {
       return;
     }
     try {
+      setShowResendVerification(false);
       await login(email, password);
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in failed");
+      const msg = e instanceof Error ? e.message : "Sign-in failed";
+      setError(msg);
+      setShowResendVerification(/verify|verified|verification/i.test(msg));
       shake();
     }
   };
@@ -140,6 +150,14 @@ const Login = () => {
             <p className="text-[13.5px] text-muted-foreground">
               Sign in to continue your focus journey
             </p>
+            <p className="mt-2 text-[12px] text-muted-foreground/80 leading-snug max-w-[340px]">
+              Email &amp; password sign-in only works after you open the verification link we send when you register.
+            </p>
+            {verifiedBanner && (
+              <p className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-700 dark:text-emerald-400">
+                Email verified. You can sign in below.
+              </p>
+            )}
           </div>
 
           {/* Form */}
@@ -164,12 +182,12 @@ const Login = () => {
                 <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/55">
                   Password
                 </label>
-                <button
-                  type="button"
+                <Link
+                  to="/forgot-password"
                   className="text-[11px] font-medium text-primary/65 hover:text-primary transition-colors duration-200"
                 >
                   Forgot password?
-                </button>
+                </Link>
               </div>
               <div className="relative">
                 <input
@@ -196,10 +214,37 @@ const Login = () => {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px] font-medium bg-destructive/[0.08] border border-destructive/20 text-destructive"
+                  className="space-y-2"
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
-                  {error}
+                  <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px] font-medium bg-destructive/[0.08] border border-destructive/20 text-destructive">
+                    <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
+                    {error}
+                  </div>
+                  {showResendVerification && email.trim() && (
+                    <button
+                      type="button"
+                      className="w-full rounded-lg border border-border bg-muted/30 py-2 text-[12px] font-medium text-foreground hover:bg-muted/50"
+                      onClick={async () => {
+                        try {
+                          const callbackURL = `${window.location.origin}/login?verified=1`;
+                          const res = await (
+                            authClient as unknown as {
+                              sendVerificationEmail: (args: { email: string; callbackURL: string }) => Promise<{ error?: { message?: string } }>;
+                            }
+                          ).sendVerificationEmail({ email: email.trim(), callbackURL });
+                          if (res?.error) {
+                            toast.error(res.error.message || "Could not send email.");
+                            return;
+                          }
+                          toast.success("If that account exists and is unverified, we sent a new link.");
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Request failed.");
+                        }
+                      }}
+                    >
+                      Resend verification email
+                    </button>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

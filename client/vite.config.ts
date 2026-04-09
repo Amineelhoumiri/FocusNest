@@ -14,7 +14,9 @@ export default defineConfig(({ mode }) => ({
     // Added proxy to cleanly map local frontend requests to the Express backend!
     proxy: {
       "/api": {
-        target: "http://localhost:3000",
+        // Use IPv4 loopback — `localhost` can resolve to ::1 while the API is only reachable via 127.0.0.1,
+        // which produced ECONNREFUSED in dev and zero sign-up hits on the Express process.
+        target: "http://127.0.0.1:3000",
         // Keep Host as localhost:8080 so Better Auth sees the same origin as BETTER_AUTH_URL (Vite dev).
         changeOrigin: false,
       },

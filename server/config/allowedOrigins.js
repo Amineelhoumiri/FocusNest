@@ -15,14 +15,30 @@ function getTrustedOrigins() {
                 .map((s) => s.trim().replace(/\/$/, ""))
                 .filter(Boolean)
         );
-        if (clientUrl) set.add(clientUrl);
+        if (clientUrl) {
+            set.add(clientUrl);
+            if (clientUrl.includes("localhost")) {
+                try {
+                    const u = new URL(clientUrl);
+                    const twin =
+                        u.port && u.port.length > 0
+                            ? `${u.protocol}//127.0.0.1:${u.port}`
+                            : `${u.protocol}//127.0.0.1`;
+                    set.add(twin);
+                } catch {
+                    /* ignore invalid CLIENT_URL */
+                }
+            }
+        }
         return [...set];
     }
 
     const defaults = [
         clientUrl || "http://localhost:5173",
         "http://localhost:8080",
+        "http://127.0.0.1:8080",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
     ].filter(Boolean);
 
     return [...new Set(defaults)];

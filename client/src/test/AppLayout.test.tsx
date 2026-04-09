@@ -25,6 +25,7 @@ const renderAppLayout = () => {
               <MemoryRouter initialEntries={["/dashboard"]}>
                 <Routes>
                   <Route path="/login" element={<div>Login Page</div>} />
+                  <Route path="/welcome/consent" element={<div>Welcome Consent</div>} />
                   <Route element={<AppLayout />}>
                     <Route path="/dashboard" element={<div>Dashboard Content</div>} />
                   </Route>
@@ -60,9 +61,32 @@ describe("AppLayout auth guard", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading");
   });
 
+  it("redirects to welcome consent when core consent is not recorded", () => {
+    (useAuth as ReturnType<typeof vi.fn>).mockReturnValue({
+      user: {
+        user_id: "abc",
+        full_name: "Amine",
+        email: "a@a.com",
+        is_admin: false,
+        is_consented_core: false,
+      },
+      isLoading: false,
+    });
+
+    renderAppLayout();
+    expect(screen.getByText("Welcome Consent")).toBeTruthy();
+    expect(screen.queryByText("Dashboard Content")).toBeNull();
+  });
+
   it("renders children when user is authenticated", () => {
     (useAuth as ReturnType<typeof vi.fn>).mockReturnValue({
-      user: { user_id: "abc", full_name: "Amine", email: "a@a.com", is_admin: false },
+      user: {
+        user_id: "abc",
+        full_name: "Amine",
+        email: "a@a.com",
+        is_admin: false,
+        is_consented_core: true,
+      },
       isLoading: false,
     });
 

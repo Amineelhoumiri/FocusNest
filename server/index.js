@@ -14,6 +14,7 @@ const cookieParser = require("cookie-parser");
 const pool = require("./config/db");
 const { getTrustedOrigins } = require("./config/allowedOrigins");
 const { toNodeHandler } = require("better-auth/node");
+const { agentDebugLog } = require("./debug-agent-log");
 const auth = require("./auth");
 
 const usersRoutes = require("./routes/users.routes");  // Import users routes
@@ -21,6 +22,7 @@ const tasksRoutes = require("./routes/tasks.routes");  // Import tasks routes
 const sessionsRoutes = require("./routes/sessions.routes"); // Import sessions routes
 const subtasksRoutes = require("./routes/subtasks.routes");  // Import subtasks routes
 const chatRoutes = require("./routes/chat.routes");
+const uploadRoutes = require("./routes/upload.routes");
 const consentRoutes = require("./routes/consent.routes");
 const adminRoutes = require("./routes/admin.routes");
 const aiRoutes = require("./routes/ai.routes");
@@ -33,6 +35,15 @@ console.log("Loaded server file:", __filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// #region agent log
+agentDebugLog({
+    hypothesisId: "BOOT",
+    location: "index.js:startup",
+    message: "Express app initialized (debug session)",
+    data: { port: Number(PORT), nodeEnv: process.env.NODE_ENV || "(unset)" },
+});
+// #endregion
+
 // ─── Middleware ──────────────────────────────────────────────
 // CSP disabled so Vite/React assets and OAuth flows work without per-hash config
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -42,6 +53,44 @@ app.use(cors({
 }));
 // Note: express.json() is NOT applied before Better Auth so it can read its own body.
 app.use(cookieParser());
+
+// Log API hits before Better Auth (the generic logger below never sees /api/auth/*).
+app.use((req, res, next) => {
+    // #region agent log
+    const url = String(req.originalUrl || req.url || "");
+    if (req.method === "POST" && url.includes("/api/auth")) {
+        agentDebugLog({
+            hypothesisId: "H5b",
+            location: "index.js:api-middleware",
+            message: "POST /api/auth reached this Node process",
+            data: { path: req.path, originalUrl: url.slice(0, 160) },
+        });
+    }
+    if (req.method === "POST" && url.includes("sign-up/email")) {
+        agentDebugLog({
+            hypothesisId: "H5",
+            location: "index.js:api-middleware",
+            message: "sign-up/email POST reached this Node process",
+            data: { path: req.path, originalUrl: url.slice(0, 160) },
+        });
+    }
+    // #endregion
+    if (process.env.NODE_ENV !== "production" && req.path.startsWith("/api")) {
+        console.log(`[req] ${req.method} ${req.originalUrl || req.url}`);
+    }
+    next();
+});
+
+// ─── App consent endpoint (must run before Better Auth catch-all) ───────────
+// FR-L-03 / dissertation spec: POST /api/auth/consent — JSON body, session cookie auth.
+const authMiddleware = require("./middleware/auth");
+const { recordInitialConsent } = require("./controllers/consent.controller");
+app.post(
+  "/api/auth/consent",
+  express.json(),
+  authMiddleware,
+  recordInitialConsent
+);
 
 // ─── Better Auth ─────────────────────────────────────────────
 // Must be mounted before express.json() so Better Auth handles its own body parsing.
@@ -72,6 +121,9 @@ console.log("Tasks routes mounted. Route count:", tasksRoutes?.stack?.length ?? 
 
 app.use("/api/chat", chatRoutes);
 console.log("Chat routes mounted. Route count:", chatRoutes?.stack?.length ?? 0);
+
+app.use("/api/upload", uploadRoutes);
+console.log("Upload routes mounted. Route count:", uploadRoutes?.stack?.length ?? 0);
 
 app.use("/api/consent", consentRoutes);
 console.log("Consent routes mounted. Route count:", consentRoutes?.stack?.length ?? 0);
@@ -179,6 +231,14 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`✓ Server is running and listening on port ${PORT}`);
+    // #region agent log
+    agentDebugLog({
+        hypothesisId: "BOOT2",
+        location: "index.js:listen",
+        message: "server listening",
+        data: { port: Number(PORT) },
+    });
+    // #endregion
   });
 }
 
