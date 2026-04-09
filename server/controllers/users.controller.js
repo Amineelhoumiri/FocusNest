@@ -38,7 +38,7 @@ async function ensureAppUserRow(userId) {
   await pool.query(
     `INSERT INTO users
        (user_id, full_name, date_of_birth, is_consented_core, is_consented_ai, is_consented_spotify, is_admin)
-     VALUES ($1, $2, $3::date, TRUE, COALESCE($4, false), COALESCE($5, false), COALESCE($6, false))
+     VALUES ($1, $2, $3::date, FALSE, COALESCE($4, false), COALESCE($5, false), COALESCE($6, false))
      ON CONFLICT (user_id) DO NOTHING`,
     [row.id, fullName, dob, row.is_consented_ai, row.is_consented_spotify, row.is_admin]
   );

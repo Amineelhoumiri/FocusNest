@@ -76,13 +76,14 @@ const StepTrack = ({ step, reduced, isDark }: { step: Step; reduced: boolean; is
 // ─── Step 1 — Task picker ─────────────────────────────────────────────────────
 
 const StepTask = ({
-  tasks, loading, selectedTask, setSelectedTask, onNext, isDark,
+  tasks, loading, selectedTask, setSelectedTask, onNext, onGoToChat, isDark,
 }: {
   tasks: SessionTask[];
   loading: boolean;
   selectedTask: SessionTask | null;
   setSelectedTask: (t: SessionTask) => void;
   onNext: () => void;
+  onGoToChat: () => void;
   isDark: boolean;
 }) => (
   <div>
@@ -102,9 +103,27 @@ const StepTask = ({
         Loading tasks…
       </div>
     ) : tasks.length === 0 ? (
-      <div className="py-8 text-center text-[13px]"
-           style={{ color: isDark ? "rgba(255,255,255,0.35)" : "rgba(26,24,48,0.45)" }}>
-        No active tasks. Create some tasks first.
+      <div className="py-8 text-center">
+        <p className="text-[13px] mb-1"
+           style={{ color: isDark ? "rgba(255,255,255,0.38)" : "rgba(26,24,48,0.48)" }}>
+          No active tasks yet.
+        </p>
+        <p className="text-[11px] mb-4"
+           style={{ color: isDark ? "rgba(255,255,255,0.22)" : "rgba(26,24,48,0.32)" }}>
+          Not sure where to start? Let the AI help you plan.
+        </p>
+        <button
+          onClick={onGoToChat}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold",
+            "transition-all duration-150 cursor-pointer",
+            isDark
+              ? "bg-violet-500/18 text-violet-300 border border-violet-500/30 hover:bg-violet-500/28"
+              : "bg-violet-500/10 text-[#534AB7] border border-violet-500/22 hover:bg-violet-500/18"
+          )}
+        >
+          Chat with AI to create tasks →
+        </button>
       </div>
     ) : (
       <div className="flex flex-col gap-2.5 mb-6 max-h-[320px] overflow-y-auto
@@ -592,6 +611,7 @@ const Sessions = () => {
                 selectedTask={selectedTask}
                 setSelectedTask={(t) => { setSelectedTask(t); setSelectedSubtask(null); }}
                 onNext={() => setStep(2)}
+                onGoToChat={() => navigate("/chat")}
                 isDark={isDark}
               />
             )}

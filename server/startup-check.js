@@ -49,6 +49,13 @@ function runStartupCheck() {
     missingOptional.forEach((k) => console.warn(`    ${k}`));
   }
 
+  if (!process.env.RESEND_API_KEY && process.env.REQUIRE_EMAIL_VERIFICATION !== "false") {
+    console.warn(
+      "⚠ RESEND_API_KEY not set — verification & password-reset emails are not delivered to real inboxes."
+    );
+    console.warn("    Add RESEND_API_KEY + MAIL_FROM to server/.env, or watch API logs for [mail] fallback URLs.");
+  }
+
   // Warn if BETTER_AUTH_URL looks like localhost in a non-dev environment
   const authUrl = process.env.BETTER_AUTH_URL || "";
   if (process.env.NODE_ENV === "production" && authUrl.includes("localhost")) {

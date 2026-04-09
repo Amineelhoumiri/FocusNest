@@ -99,7 +99,10 @@ describe("Login page", () => {
 
     await waitFor(() => {
       expect(authClient.signIn.social).toHaveBeenCalledWith(
-        expect.objectContaining({ provider: "google" })
+        expect.objectContaining({
+          provider: "google",
+          callbackURL: expect.stringContaining("/welcome/consent"),
+        })
       );
     });
   });

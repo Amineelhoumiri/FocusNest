@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ArrowRight, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { authClient } from "@/lib/auth-client";
 import AuthSidePanel from "@/components/AuthSidePanel";
+import { TermsConditionsDialog } from "@/components/ui/terms-conditions-dialog";
+import { PrivacyPolicyDialog } from "@/components/ui/privacy-policy-dialog";
+import { cn } from "@/lib/utils";
 
 // ─── Password strength ─────────────────────────────────────────────────────────
 const getPasswordStrength = (pw: string) => {
@@ -65,15 +68,21 @@ const Register = () => {
     coreDataConsent: false,
     aiConsent: false,
     spotifyConsent: false,
+    termsDialogAccepted: false,
+    privacyDialogAccepted: false,
   });
   const [done, setDone] = useState(false);
+  /** True when server did not auto sign-in (email verification required). */
+  const [awaitingEmailVerify, setAwaitingEmailVerify] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [shaking, setShaking] = useState(false);
 
-  const { register } = useAuth();
+  const { register, user } = useAuth();
   const navigate = useNavigate();
+
+  if (user) return <Navigate to="/dashboard" replace />;
 
   const update = (key: string, val: string | boolean) =>
     setForm((f) => ({ ...f, [key]: val }));
@@ -88,8 +97,13 @@ const Register = () => {
   const passwordsMatch =
     form.password && form.confirmPassword && form.password === form.confirmPassword;
 
+  const legalDialogsComplete = form.termsDialogAccepted && form.privacyDialogAccepted;
+
   const handleSocialSignUp = async (provider: "google") => {
-    await authClient.signIn.social({ provider, callbackURL: `${window.location.origin}/dashboard` });
+    await authClient.signIn.social({
+      provider,
+      callbackURL: `${window.location.origin}/welcome/consent`,
+    });
   };
 
   const next = async () => {
@@ -112,6 +126,12 @@ const Register = () => {
       }
     }
 
+    if (step === 1 && !legalDialogsComplete) {
+      setError("Open Terms and Privacy below, read to the end of each, and tap I agree.");
+      shake();
+      return;
+    }
+
     if (step === 1 && !form.coreDataConsent) {
       setError("You must accept Core Data processing to create an account.");
       shake();
@@ -122,7 +142,7 @@ const Register = () => {
       setStep(step + 1);
     } else {
       try {
-        await register({
+        const reg = await register({
           full_name: form.full_name,
           email: form.email,
           password: form.password,
@@ -130,8 +150,11 @@ const Register = () => {
           is_consented_ai: form.aiConsent,
           is_consented_spotify: form.spotifyConsent,
         });
+        setAwaitingEmailVerify(reg.needsEmailVerification === true);
         setDone(true);
-        setTimeout(() => navigate("/dashboard"), 2000);
+        if (!reg.needsEmailVerification) {
+          setTimeout(() => navigate("/dashboard"), 2000);
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
         setStep(0);
@@ -179,7 +202,7 @@ const Register = () => {
 
           {done ? (
             /* ── Success state ── */
-            <div className="flex-1 flex flex-col items-center justify-center py-12">
+            <div className="flex-1 flex flex-col items-center justify-center py-12 px-2 text-center">
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
@@ -189,10 +212,34 @@ const Register = () => {
               >
                 <Check className="w-9 h-9 text-emerald-400" />
               </motion.div>
-              <h2 className="text-2xl font-bold mb-2 font-display">Welcome to FocusNest 🎉</h2>
-              <p className="text-muted-foreground text-sm">
-                Redirecting to your dashboard…
-              </p>
+              {awaitingEmailVerify ? (
+                <>
+                  <h2 className="text-2xl font-bold mb-2 font-display">Check your email</h2>
+                  <p className="text-muted-foreground text-sm max-w-sm leading-relaxed">
+                    We sent a verification link to <span className="font-medium text-foreground/90">{form.email}</span>.
+                    Open it to confirm your address, then sign in. You&apos;ll finish account setup (terms &amp; consent)
+                    right after your first login.
+                  </p>
+                  <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground/70 max-w-sm">
+                    <strong className="text-foreground/80">Local dev?</strong> If you have not configured Resend
+                    (<code className="rounded bg-muted/50 px-1">RESEND_API_KEY</code> in{" "}
+                    <code className="rounded bg-muted/50 px-1">server/.env</code>), the link is only printed in the
+                    terminal where the API server runs — look for{" "}
+                    <code className="rounded bg-muted/50 px-1">[mail]</code> and copy the URL from the message.
+                  </p>
+                  <Link
+                    to="/login"
+                    className="mt-8 inline-flex items-center justify-center rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    Back to sign in
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-2xl font-bold mb-2 font-display">Welcome to FocusNest 🎉</h2>
+                  <p className="text-muted-foreground text-sm">Redirecting to your dashboard…</p>
+                </>
+              )}
             </div>
           ) : (
             <>
@@ -404,13 +451,46 @@ const Register = () => {
 
                   {step === 1 && (
                     <div className="space-y-3">
+                      <p className="text-[12px] text-muted-foreground/55 -mt-1 mb-1">
+                        FocusNest needs your agreement before we get started.
+                      </p>
+
+                      <div className="rounded-2xl border border-border/55 bg-muted/15 p-4 dark:bg-muted/10">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                          Read the documents
+                        </p>
+                        <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                          Open each pop-up, scroll to the bottom, then tap{" "}
+                          <span className="font-medium text-foreground">I agree</span>. Full legal pages stay
+                          available anytime from the footer links.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <TermsConditionsDialog
+                            agreed={form.termsDialogAccepted}
+                            onAgreed={() => {
+                              update("termsDialogAccepted", true);
+                              setError(null);
+                            }}
+                          />
+                          <PrivacyPolicyDialog
+                            agreed={form.privacyDialogAccepted}
+                            onAgreed={() => {
+                              update("privacyDialogAccepted", true);
+                              setError(null);
+                            }}
+                          />
+                        </div>
+                      </div>
+
                       {/* Core data (required) */}
                       <label
-                        className={`flex items-start gap-3 rounded-xl p-4 cursor-pointer transition-all duration-200 border ${
+                        className={cn(
+                          "flex items-start gap-3 rounded-xl p-4 transition-all duration-200 border",
+                          legalDialogsComplete ? "cursor-pointer" : "cursor-not-allowed opacity-60",
                           form.coreDataConsent
                             ? "bg-primary/[0.06] border-primary/[0.22]"
-                            : "bg-foreground/[0.025] border-foreground/[0.07]"
-                        }`}
+                            : "bg-foreground/[0.025] border-foreground/[0.07]",
+                        )}
                       >
                         <div
                           className="w-4 h-4 rounded flex items-center justify-center mt-0.5 shrink-0 transition-all duration-200"
@@ -428,18 +508,26 @@ const Register = () => {
                         <input
                           type="checkbox"
                           checked={form.coreDataConsent}
-                          onChange={(e) => update("coreDataConsent", e.target.checked)}
+                          disabled={!legalDialogsComplete}
+                          onChange={(e) => {
+                            if (!legalDialogsComplete) {
+                              setError("Complete the Terms and Privacy pop-ups above first.");
+                              shake();
+                              return;
+                            }
+                            update("coreDataConsent", e.target.checked);
+                          }}
                           className="sr-only"
                         />
                         <div>
                           <p className="text-[13px] font-semibold mb-0.5">
-                            Core Data Processing
+                            Core data storage
                             <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary/[0.18] text-primary/80">
                               Required
                             </span>
                           </p>
                           <p className="text-[12px] text-muted-foreground/60">
-                            Tasks, sessions, and settings to run FocusNest.
+                            We store your tasks, sessions, and account credentials to make the app work. This is necessary to use FocusNest.
                           </p>
                         </div>
                       </label>
@@ -470,14 +558,19 @@ const Register = () => {
                           className="sr-only"
                         />
                         <div>
-                          <p className="text-[13px] font-semibold mb-0.5">AI Processing</p>
+                          <p className="text-[13px] font-semibold mb-0.5">
+                            AI task breakdown
+                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-foreground/[0.07] text-muted-foreground/60">
+                              Optional
+                            </span>
+                          </p>
                           <p className="text-[12px] text-muted-foreground/60">
-                            Let AI break down tasks and give personalized suggestions.
+                            Allows FocusNest to send your task text to OpenAI to generate subtasks. OpenAI does not train on this data.
                           </p>
                         </div>
                       </label>
 
-                      {/* Music consent */}
+                      {/* Spotify consent */}
                       <label
                         className={`flex items-start gap-3 rounded-xl p-4 cursor-pointer transition-all duration-200 border ${
                           form.spotifyConsent
@@ -505,12 +598,37 @@ const Register = () => {
                           className="sr-only"
                         />
                         <div>
-                          <p className="text-[13px] font-semibold mb-0.5">Music Integration</p>
+                          <p className="text-[13px] font-semibold mb-0.5">
+                            Spotify audio integration
+                            <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-foreground/[0.07] text-muted-foreground/60">
+                              Optional
+                            </span>
+                          </p>
                           <p className="text-[12px] text-muted-foreground/60">
-                            Enable focus playlists during your work sessions.
+                            Allows FocusNest to connect to your Spotify account for 40Hz focus audio. We do not access your listening history.
                           </p>
                         </div>
                       </label>
+
+                      {/* Full legal pages */}
+                      <p className="text-[11px] text-muted-foreground/45 text-center pt-1">
+                        Full documents:{" "}
+                        <Link
+                          to="/terms"
+                          target="_blank"
+                          className="font-medium text-primary underline-offset-2 hover:underline"
+                        >
+                          /terms
+                        </Link>
+                        <span className="mx-1.5 opacity-50">·</span>
+                        <Link
+                          to="/privacy"
+                          target="_blank"
+                          className="font-medium text-primary underline-offset-2 hover:underline"
+                        >
+                          /privacy
+                        </Link>
+                      </p>
                     </div>
                   )}
                 </motion.div>
@@ -529,12 +647,17 @@ const Register = () => {
                   </motion.button>
                 )}
                 <motion.button
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{
+                    scale: step === 1 && (!legalDialogsComplete || !form.coreDataConsent) ? 1 : 1.01,
+                  }}
+                  whileTap={{
+                    scale: step === 1 && (!legalDialogsComplete || !form.coreDataConsent) ? 1 : 0.98,
+                  }}
                   onClick={next}
-                  className="flex-1 h-[48px] rounded-xl font-semibold text-[14px] text-primary-foreground flex items-center justify-center gap-2 tracking-wide bg-primary hover:bg-primary/90 btn-glow transition-all duration-200"
+                  disabled={step === 1 && (!legalDialogsComplete || !form.coreDataConsent)}
+                  className="flex-1 h-[48px] rounded-xl font-semibold text-[14px] text-primary-foreground flex items-center justify-center gap-2 tracking-wide bg-primary hover:bg-primary/90 btn-glow transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-primary"
                 >
-                  {step === 1 ? "Create Account" : "Continue"}
+                  {step === 1 ? "Create my account" : "Continue"}
                   {step !== 1 && <ArrowRight className="w-4 h-4" />}
                 </motion.button>
               </div>
@@ -571,6 +694,14 @@ const Register = () => {
                   className="font-semibold text-primary/75 hover:text-primary transition-colors duration-200"
                 >
                   Sign in →
+                </Link>
+              </p>
+              <p className="text-center text-[12px] mt-2 text-muted-foreground/45">
+                <Link
+                  to="/forgot-password"
+                  className="font-medium text-primary/60 hover:text-primary transition-colors duration-200"
+                >
+                  Forgot password?
                 </Link>
               </p>
               <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground/45">

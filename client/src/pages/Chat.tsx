@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
-  List, Star, Clock, Heart, ArrowUpRight, MapPin, Check, Plus, Paperclip, Globe, ArrowRight,
-  Loader2, Brain,
+  List, Star, Clock, Heart, ArrowUpRight, MapPin, Check, Plus, Paperclip, ArrowRight,
+  Loader2, Brain, X, FileText, Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
@@ -97,6 +97,13 @@ interface Message {
   }
 }
 
+interface AttachedFile {
+  name: string
+  type: string
+  content: string   // text content or data-URL for images
+  isImage: boolean
+}
+
 interface TaskApiRow {
   task_id: string
   task_name: string
@@ -165,6 +172,8 @@ const Chat = () => {
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -290,12 +299,94 @@ const Chat = () => {
     }
   }
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+
+    const MAX_SIZE = 10_000_000 // 10 MB
+    const processed: AttachedFile[] = []
+
+    for (const file of files) {
+      if (file.size > MAX_SIZE) {
+        toast.error(`${file.name} is too large (max 10 MB).`)
+        continue
+      }
+
+      const isImage = file.type.startsWith("image/")
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
+
+      if (isImage) {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+        processed.push({ name: file.name, type: file.type, content: dataUrl, isImage: true })
+      } else if (isPdf) {
+        try {
+          const formData = new FormData()
+          formData.append("file", file)
+          const res = await fetch("/api/upload/parse", {
+            method: "POST",
+            credentials: "include",
+            body: formData,
+          })
+          if (!res.ok) throw new Error("Server could not parse PDF")
+          const { text } = await res.json() as { text: string }
+          processed.push({ name: file.name, type: file.type, content: text.trim(), isImage: false })
+        } catch {
+          toast.error(`Could not read ${file.name}. Try a different file.`)
+        }
+      } else {
+        const text = await file.text()
+        processed.push({ name: file.name, type: file.type, content: text, isImage: false })
+      }
+    }
+
+    setAttachedFiles(prev => [...prev, ...processed])
+    e.target.value = ""
+  }
+
+  const removeFile = (idx: number) => setAttachedFiles(prev => prev.filter((_, i) => i !== idx))
+
   const sendMessage = async (userText: string) => {
-    if (!userText.trim()) return
+    const hasFiles = attachedFiles.length > 0
+    if (!userText.trim() && !hasFiles) return
+
+    // Build text content including any text/pdf file contents
+    const textFiles = attachedFiles.filter(f => !f.isImage)
+    const imageFiles = attachedFiles.filter(f => f.isImage)
+
+    let fullText = userText.trim()
+    if (textFiles.length > 0) {
+      const fileParts = textFiles.map(f =>
+        `--- Attached file: ${f.name} ---\n${f.content}\n--- End of ${f.name} ---`
+      ).join("\n\n")
+      const fileNames = textFiles.map(f => f.name).join(", ")
+      const prefix = fullText
+        ? `${fullText}\n\nI'm also sharing a file with you: ${fileNames}`
+        : `I'm sharing a file with you: ${fileNames}. Please read it and acknowledge.`
+      fullText = `${prefix}\n\n${fileParts}`
+    }
+
+    // Build the user message for the AI — use vision content array if images present
+    type OAIContent = string | Array<{ type: string; text?: string; image_url?: { url: string } }>
+    let apiUserContent: OAIContent
+    if (imageFiles.length > 0) {
+      const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = []
+      if (fullText) parts.push({ type: "text", text: fullText })
+      imageFiles.forEach(f => parts.push({ type: "image_url", image_url: { url: f.content } }))
+      apiUserContent = parts
+    } else {
+      apiUserContent = fullText
+    }
+
+    const displayText = userText.trim() || attachedFiles.map(f => `📎 ${f.name}`).join(" ")
 
     const currentMessages = messages
-    setMessages(prev => [...prev, { role: "user", content: userText }])
+    setMessages(prev => [...prev, { role: "user", content: displayText }])
     setInput("")
+    setAttachedFiles([])
     setIsLoading(true)
 
     let sid = chatSessionId
@@ -311,14 +402,15 @@ const Chat = () => {
     fetch(`/api/chat/${sid}/messages`, {
       method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "user", content: userText }),
+      // Persist a clean history entry (don't store full parsed documents).
+      body: JSON.stringify({ role: "user", content: displayText }),
     }).catch(() => {})
 
     const systemPromptMessage = { role: "system", content: buildSystemPrompt(activeMood, tasks) }
     const apiHistory = [
       systemPromptMessage,
       ...currentMessages.map((m) => ({ role: m.role === "ai" ? "assistant" : "user", content: m.content })),
-      { role: "user", content: userText },
+      { role: "user", content: apiUserContent },
     ]
 
     try {
@@ -384,6 +476,7 @@ const Chat = () => {
   }
 
   const handleSend = () => { sendMessage(input) }
+  const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && !isLoading
   const isEmpty = messages.length === 0
 
   // ── Consent gate ─────────────────────────────────────────────────────────
@@ -684,6 +777,16 @@ const Chat = () => {
                         border-t border-border/50 dark:border-white/[0.05]
                         bg-background/85 dark:bg-transparent backdrop-blur-md">
           <div className="max-w-2xl mx-auto">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.txt,.md,.csv,.json,.js,.ts,.py,.html,.css,.pdf,.doc,.docx"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
             <div className={cn(
               "rounded-[18px] px-4 pt-3 pb-2.5",
               "bg-background dark:bg-white/[0.04]",
@@ -692,6 +795,42 @@ const Chat = () => {
               "focus-within:border-primary/40 dark:focus-within:border-violet-500/42",
               "transition-colors duration-150"
             )}>
+              {/* File pills */}
+              <AnimatePresence>
+                {attachedFiles.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="flex flex-wrap gap-1.5 mb-2"
+                  >
+                    {attachedFiles.map((f, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg
+                                   bg-violet-500/10 border border-violet-400/25
+                                   text-[11px] font-medium text-violet-600 dark:text-violet-300"
+                      >
+                        {f.isImage ? (
+                          <ImageIcon className="w-3 h-3 shrink-0" style={{ width: 12, height: 12 }} />
+                        ) : (
+                          <FileText className="w-3 h-3 shrink-0" style={{ width: 12, height: 12 }} />
+                        )}
+                        <span className="max-w-[140px] truncate">{f.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(i)}
+                          className="ml-0.5 hover:text-destructive transition-colors"
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          <X className="w-3 h-3" style={{ width: 12, height: 12 }} />
+                        </button>
+                      </div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <textarea
                 ref={inputRef}
                 rows={1}
@@ -715,21 +854,17 @@ const Chat = () => {
 
               <div className="flex items-center justify-between mt-2.5">
                 <div className="flex items-center gap-1.5">
-                  <button className="w-7 h-7 rounded-lg flex items-center justify-center
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center
                                      bg-violet-500/07 dark:bg-white/[0.06]
                                      text-violet-500/50 dark:text-slate-400
                                      hover:bg-violet-500/14 dark:hover:bg-white/[0.11]
                                      hover:text-violet-600 dark:hover:text-slate-200
-                                     border-none transition-all duration-150">
+                                     border-none transition-all duration-150"
+                  >
                     <Paperclip className="w-3.5 h-3.5" style={{width:14,height:14}} />
-                  </button>
-                  <button className="w-7 h-7 rounded-lg flex items-center justify-center
-                                     bg-violet-500/07 dark:bg-white/[0.06]
-                                     text-violet-500/50 dark:text-slate-400
-                                     hover:bg-violet-500/14 dark:hover:bg-white/[0.11]
-                                     hover:text-violet-600 dark:hover:text-slate-200
-                                     border-none transition-all duration-150">
-                    <Globe className="w-3.5 h-3.5" style={{width:14,height:14}} />
                   </button>
                 </div>
 
@@ -746,11 +881,11 @@ const Chat = () => {
                   </div>
                   <button
                     onClick={handleSend}
-                    disabled={!input.trim() || isLoading}
+                    disabled={!canSend}
                     className={cn(
                       "w-8 h-8 rounded-full flex items-center justify-center",
                       "transition-all duration-150 border-none",
-                      input.trim() && !isLoading
+                      canSend
                         ? "bg-violet-500 hover:bg-violet-600 hover:scale-[1.08] active:scale-[0.95]"
                         : "bg-violet-500/20 dark:bg-white/[0.06] cursor-not-allowed"
                     )}>

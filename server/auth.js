@@ -1,11 +1,67 @@
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+const path = require("path");
+const { pathToFileURL } = require("url");
 const { betterAuth } = require("better-auth");
 const pool = require("./config/db");
 const { getTrustedOrigins } = require("./config/allowedOrigins");
+const { sendTransactionalEmail } = require("./services/mail.service");
+const { agentDebugLog } = require("./debug-agent-log");
 
 const rawPublicUrl = (process.env.BETTER_AUTH_URL || process.env.CLIENT_URL || "").replace(/\/$/, "");
 /** Required for correct OAuth redirect_uri and cookie issuance; must match the browser origin (e.g. Vite :8080). */
 const baseURL = rawPublicUrl || undefined;
+
+/**
+ * With requireEmailVerification, Better Auth returns a generic "success" for duplicate sign-ups
+ * without calling sendVerificationEmail — so unverified users never get a new link.
+ * We resend when the row already exists and email is still unverified.
+ */
+async function buildVerificationUrlForEmail(email) {
+  const secret = process.env.BETTER_AUTH_SECRET;
+  const base = rawPublicUrl;
+  if (!secret || !base) {
+    // #region agent log
+    agentDebugLog({
+      hypothesisId: "H3",
+      location: "auth.js:buildVerificationUrlForEmail",
+      message: "verify URL null: missing secret or base",
+      data: { hasSecret: !!secret, hasBase: !!base },
+    });
+    // #endregion
+    return null;
+  }
+  try {
+    const evFile = path.join(__dirname, "node_modules", "better-auth", "dist", "api", "routes", "email-verification.mjs");
+    const { createEmailVerificationToken } = await import(pathToFileURL(evFile).href);
+    const token = await createEmailVerificationToken(
+      secret,
+      email,
+      undefined,
+      undefined
+    );
+    const callbackURL = encodeURIComponent(`${base}/login?verified=1`);
+    const url = `${base}/verify-email?token=${token}&callbackURL=${callbackURL}`;
+    // #region agent log
+    agentDebugLog({
+      hypothesisId: "H3",
+      location: "auth.js:buildVerificationUrlForEmail",
+      message: "verify URL built",
+      data: { urlLength: url.length, hasTokenInUrl: url.includes("token=") },
+    });
+    // #endregion
+    return url;
+  } catch (e) {
+    // #region agent log
+    agentDebugLog({
+      hypothesisId: "H3",
+      location: "auth.js:buildVerificationUrlForEmail",
+      message: "build verify URL threw",
+      data: { err: String(e && e.message ? e.message : e) },
+    });
+    // #endregion
+    return null;
+  }
+}
 
 const auth = betterAuth({
   ...(baseURL ? { baseURL } : {}),
@@ -37,6 +93,153 @@ const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    /**
+     * Default: email/password sign-in requires a verified address (verification email on sign-up).
+     * Set REQUIRE_EMAIL_VERIFICATION=false for local dev without a mail provider.
+     */
+    requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION !== "false",
+    sendResetPassword: async ({ user, url }) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.info(`[auth] sendResetPassword for ${user?.email || "(no email)"}`);
+      }
+      try {
+        await sendTransactionalEmail({
+          to: user.email,
+          subject: "Reset your FocusNest password",
+          text: [
+            "Hi,",
+            "",
+            "We received a request to reset the password for your FocusNest account.",
+            `Open this link to choose a new password (it expires in about an hour):`,
+            url,
+            "",
+            "If you did not ask for this, you can ignore this email.",
+            "",
+            "— FocusNest",
+          ].join("\n"),
+        });
+      } catch (err) {
+        console.error("[auth] sendResetPassword:", err?.message || err);
+        throw err;
+      }
+    },
+    /**
+     * Fires when email already exists and requireEmailVerification is on (before generic JSON response).
+     * Without this, repeat sign-ups send no mail and the API logs show no sendVerificationEmail.
+     */
+    onExistingUserSignUp: async ({ user }) => {
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "H1",
+        location: "auth.js:onExistingUserSignUp:entry",
+        message: "onExistingUserSignUp invoked",
+        data: {
+          emailVerified: !!user?.emailVerified,
+          emailLen: user?.email ? String(user.email).length : 0,
+        },
+      });
+      // #endregion
+      if (user.emailVerified) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info(`[auth] sign-up duplicate: ${user.email} (already verified)`);
+        }
+        return;
+      }
+      if (process.env.NODE_ENV !== "production") {
+        console.info(`[auth] sign-up duplicate: ${user.email} (unverified — resending verification email)`);
+      }
+      try {
+        const verifyUrl = await buildVerificationUrlForEmail(user.email);
+        // #region agent log
+        agentDebugLog({
+          hypothesisId: "H1",
+          location: "auth.js:onExistingUserSignUp:afterBuildUrl",
+          message: "duplicate path verifyUrl result",
+          data: { hasVerifyUrl: !!verifyUrl },
+        });
+        // #endregion
+        if (!verifyUrl) {
+          console.error("[auth] onExistingUserSignUp: missing BETTER_AUTH_SECRET or public URL for verify link");
+          return;
+        }
+        await sendTransactionalEmail({
+          to: user.email,
+          subject: "Verify your FocusNest email",
+          text: [
+            "Hi,",
+            "",
+            "Please confirm your email address for FocusNest by opening this link:",
+            verifyUrl,
+            "",
+            "— FocusNest",
+          ].join("\n"),
+        });
+        // #region agent log
+        agentDebugLog({
+          hypothesisId: "H1",
+          location: "auth.js:onExistingUserSignUp:afterSend",
+          message: "sendTransactionalEmail finished (duplicate path)",
+          data: { ok: true },
+        });
+        // #endregion
+      } catch (err) {
+        // #region agent log
+        agentDebugLog({
+          hypothesisId: "H1",
+          location: "auth.js:onExistingUserSignUp:catch",
+          message: "onExistingUserSignUp error",
+          data: { err: String(err?.message || err) },
+        });
+        // #endregion
+        console.error("[auth] onExistingUserSignUp:", err?.message || err);
+      }
+    },
+  },
+
+  // ── Email verification ─────────────────────────────────────────
+  emailVerification: {
+    sendOnSignUp: true,
+    sendVerificationEmail: async ({ user, url }) => {
+      // #region agent log
+      agentDebugLog({
+        hypothesisId: "H2",
+        location: "auth.js:sendVerificationEmail",
+        message: "Better Auth called sendVerificationEmail (new-user path)",
+        data: {
+          emailLen: user?.email ? String(user.email).length : 0,
+          urlLen: url ? String(url).length : 0,
+        },
+      });
+      // #endregion
+      if (process.env.NODE_ENV !== "production") {
+        console.info(`[auth] sendVerificationEmail for ${user?.email || "(no email)"}`);
+      }
+      try {
+        await sendTransactionalEmail({
+          to: user.email,
+          subject: "Verify your FocusNest email",
+          text: [
+            "Hi,",
+            "",
+            "Please confirm your email address for FocusNest by opening this link:",
+            url,
+            "",
+            "— FocusNest",
+          ].join("\n"),
+        });
+      } catch (err) {
+        // #region agent log
+        agentDebugLog({
+          hypothesisId: "H2",
+          location: "auth.js:sendVerificationEmail:catch",
+          message: "sendVerificationEmail mail error",
+          data: { err: String(err?.message || err) },
+        });
+        // #endregion
+        console.error("[auth] sendVerificationEmail:", err?.message || err);
+        throw err;
+      }
+    },
   },
 
   // ── Social Providers ─────────────────────────────────────────
@@ -87,6 +290,7 @@ const auth = betterAuth({
   // After Better Auth creates a new user in ba_user, mirror them into
   // our domain `users` table so all existing FKs (tasks, sessions, etc.)
   // continue to work. ba_user.id === users.user_id (same UUID).
+  // Core consent stays false until POST /api/consent/register (email sign-up) or /welcome/consent (OAuth).
   databaseHooks: {
     user: {
       create: {
@@ -101,7 +305,7 @@ const auth = betterAuth({
             await pool.query(
               `INSERT INTO users
                  (user_id, full_name, date_of_birth, is_consented_core, is_consented_ai, is_consented_spotify, is_admin)
-               VALUES ($1, $2, $3::date, TRUE, $4, $5, COALESCE($6, false))
+               VALUES ($1, $2, $3::date, FALSE, $4, $5, COALESCE($6, false))
                ON CONFLICT (user_id) DO NOTHING`,
               [
                 user.id,
