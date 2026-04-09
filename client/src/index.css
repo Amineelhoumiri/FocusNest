@@ -195,6 +195,86 @@
     letter-spacing: -0.03em;
   }
 
+  /**
+   * Legal pages (/terms, /privacy) — document typography without generic “prose” look.
+   * Pairs with LegalLayout; tables keep explicit .not-prose wrappers in page files.
+   */
+  .legal-doc {
+    @apply min-w-0 max-w-none text-[0.9375rem] leading-[1.72] text-muted-foreground;
+  }
+
+  .legal-doc h2 {
+    font-family: 'Syne', system-ui, sans-serif;
+    @apply mt-14 scroll-mt-36 border-b border-border/50 pb-4 text-xl font-bold tracking-tight text-foreground md:text-[1.375rem] md:leading-snug;
+  }
+
+  .legal-doc h2:first-child {
+    @apply mt-0;
+  }
+
+  .legal-doc h3 {
+    @apply mt-10 scroll-mt-32 border-l-[3px] border-primary/35 pl-4 text-[1.05rem] font-semibold leading-snug tracking-tight text-foreground md:text-[1.0625rem];
+  }
+
+  .legal-doc h2 + h3 {
+    @apply mt-6;
+  }
+
+  .legal-doc h3 + p,
+  .legal-doc h3 + div {
+    @apply mt-3;
+  }
+
+  .legal-doc p {
+    @apply mb-4 last:mb-0;
+  }
+
+  .legal-doc ul,
+  .legal-doc ol {
+    @apply my-5 space-y-2.5 pl-0;
+  }
+
+  .legal-doc ul {
+    @apply list-none;
+  }
+
+  .legal-doc ul > li {
+    @apply relative pl-5;
+  }
+
+  .legal-doc ul > li::before {
+    content: '';
+    @apply absolute left-0 top-[0.65em] h-1.5 w-1.5 rounded-full bg-primary/55;
+  }
+
+  .legal-doc ol {
+    @apply list-decimal pl-5 marker:text-primary/70;
+  }
+
+  .legal-doc li {
+    @apply leading-relaxed;
+  }
+
+  .legal-doc strong {
+    @apply font-semibold text-foreground;
+  }
+
+  .legal-doc a {
+    @apply font-medium text-primary underline-offset-[3px] transition-colors hover:text-primary/85 hover:underline;
+  }
+
+  .legal-doc blockquote {
+    @apply my-8 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.06] via-transparent to-cyan-500/[0.04] p-6 shadow-[0_1px_0_hsl(var(--border)/0.6)] dark:from-primary/[0.1] dark:to-transparent;
+  }
+
+  .legal-doc blockquote p {
+    @apply mb-0 text-[0.9375rem] leading-relaxed first:mt-0;
+  }
+
+  .legal-doc code {
+    @apply rounded-md border border-border/50 bg-muted/80 px-1.5 py-0.5 font-mono text-[0.8em] text-foreground/90;
+  }
+
   /* ── Ambient orbs — CSS-driven light/dark intensity ───────────────── */
 
   /* Dark mode — strong, atmospheric */

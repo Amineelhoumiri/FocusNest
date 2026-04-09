@@ -6,7 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { FocusScoreProvider } from "@/context/FocusScoreContext";
@@ -16,7 +16,11 @@ import { ZenModeProvider } from "@/context/ZenModeContext";
 import AppLayout from "@/components/layout/AppLayout";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import VerifyEmail from "./pages/VerifyEmail";
 import Register from "./pages/Register";
+import WelcomeConsent from "./pages/WelcomeConsent";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Dashboard from "./pages/Dashboard";
@@ -35,8 +39,14 @@ import NotFound from "./pages/NotFound";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
 import CookieBanner from "@/components/CookieBanner";
+import { useAuth } from "@/context/AuthContext";
 
 const queryClient = new QueryClient();
+
+const LandingOrDashboard = () => {
+  const { user } = useAuth();
+  return user ? <Navigate to="/dashboard" replace /> : <Landing />;
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -51,9 +61,13 @@ const App = () => (
               <Sonner />
               <BrowserRouter>
                 <Routes>
-                  <Route path="/" element={<Landing />} />
+                  <Route path="/" element={<LandingOrDashboard />} />
                   <Route path="/login" element={<Login />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/verify-email" element={<VerifyEmail />} />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/welcome/consent" element={<WelcomeConsent />} />
                   <Route path="/terms" element={<Terms />} />
                   <Route path="/privacy" element={<Privacy />} />
                   <Route element={<AppLayout />}>

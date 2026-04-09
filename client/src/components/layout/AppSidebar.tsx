@@ -7,13 +7,13 @@ import {
   IconShieldExclamation,
 } from "@tabler/icons-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useFocusScore } from "@/context/FocusScoreContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogOut, User, X } from "lucide-react";
+import { X } from "lucide-react";
 
 // ─── Nav Groups ───────────────────────────────────────────────────────────────
 
@@ -219,7 +219,6 @@ const SidebarContent = ({
   score,
   streak,
   onNavClick,
-  onLogout,
 }: {
   dark: boolean;
   isActive: (to: string) => boolean;
@@ -227,9 +226,7 @@ const SidebarContent = ({
   score: number;
   streak: number;
   onNavClick?: () => void;
-  onLogout: () => void | Promise<void>;
 }) => {
-  const navigate = useNavigate();
   const labelStyle: React.CSSProperties = {
     fontSize: "10px",
     letterSpacing: "0.07em",
@@ -323,76 +320,6 @@ const SidebarContent = ({
         )}
       </nav>
 
-      {/* ── Account (mobile drawer: always reachable Profile + Sign out) ── */}
-      {user && (
-        <div
-          style={{
-            marginTop: "14px",
-            paddingTop: "12px",
-            borderTop: dark ? "0.5px solid rgba(255,255,255,0.08)" : "0.5px solid rgba(83,74,183,0.12)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}
-        >
-          <NavLink
-            to="/profile"
-            activeClassName=""
-            onClick={onNavClick}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "10px 8px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              cursor: "pointer",
-              textDecoration: "none",
-              color: isActive("/profile")
-                ? dark
-                  ? "#ffffff"
-                  : "#534AB7"
-                : dark
-                  ? "rgba(203,213,225,0.9)"
-                  : "rgba(83,74,183,0.82)",
-              background: isActive("/profile")
-                ? dark
-                  ? "rgba(124,111,247,0.18)"
-                  : "rgba(83,74,183,0.13)"
-                : "transparent",
-              fontWeight: isActive("/profile") ? 500 : undefined,
-            }}
-          >
-            <User size={15} strokeWidth={1.4} style={{ flexShrink: 0 }} />
-            <span style={{ whiteSpace: "nowrap" }}>Profile</span>
-          </NavLink>
-          <button
-            type="button"
-            onClick={async () => {
-              onNavClick?.();
-              await onLogout();
-              navigate("/login");
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              width: "100%",
-              padding: "10px 8px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              cursor: "pointer",
-              border: "none",
-              textAlign: "left",
-              background: "transparent",
-              color: dark ? "rgba(248,113,113,0.95)" : "rgba(220,38,38,0.92)",
-            }}
-          >
-            <LogOut size={15} strokeWidth={1.4} style={{ flexShrink: 0 }} />
-            <span style={{ whiteSpace: "nowrap" }}>Sign out</span>
-          </button>
-        </div>
-      )}
 
       {/* ── Focus Score widget (pushed to bottom) ── */}
       <div style={{ marginTop: "auto" }}>
@@ -412,7 +339,7 @@ const AppSidebar = ({
   onClose?: () => void;
 }) => {
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { score, streak } = useFocusScore();
   const { theme } = useTheme();
 
@@ -445,7 +372,6 @@ const AppSidebar = ({
       score={score}
       streak={streak}
       onNavClick={onNavClick}
-      onLogout={logout}
     />
   );
 
