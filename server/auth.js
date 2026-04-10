@@ -66,6 +66,12 @@ async function buildVerificationUrlForEmail(email) {
 const auth = betterAuth({
   ...(baseURL ? { baseURL } : {}),
 
+  // ── Logger (visible in App Runner / CloudWatch stdout) ───────
+  logger: {
+    level: "debug",
+    disabled: false,
+  },
+
   // ── Database ────────────────────────────────────────────────
   // Pass the existing pg Pool directly — Better Auth detects it automatically.
   database: pool,
@@ -200,6 +206,15 @@ const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url }) => {
+      // OAuth users (Google, Apple) already have their email verified by the provider.
+      // Better Auth still calls this hook for them when sendOnSignUp is true — skip it
+      // so a Resend failure can't poison the OAuth session setup.
+      if (user?.emailVerified) {
+        if (process.env.NODE_ENV !== "production") {
+          console.info(`[auth] sendVerificationEmail skipped — already verified (OAuth user)`);
+        }
+        return;
+      }
       // #region agent log
       agentDebugLog({
         hypothesisId: "H2",
@@ -236,8 +251,9 @@ const auth = betterAuth({
           data: { err: String(err?.message || err) },
         });
         // #endregion
+        // Do NOT re-throw — a mail delivery failure must not block the auth flow.
+        // The user can request a new verification link from the login page.
         console.error("[auth] sendVerificationEmail:", err?.message || err);
-        throw err;
       }
     },
   },
@@ -247,6 +263,9 @@ const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      // Explicit redirect URI — prevents any ambiguity in how Better Auth
+      // constructs this value internally during the token exchange with Google.
+      redirectURI: rawPublicUrl ? `${rawPublicUrl}/api/auth/callback/google` : undefined,
     },
     apple: {
       clientId: process.env.APPLE_CLIENT_ID,

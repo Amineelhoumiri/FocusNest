@@ -43,6 +43,10 @@ console.log("Loaded server file:", __filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// App Runner / ALB sit in front — trust one proxy hop so express-rate-limit
+// sees the real client IP from X-Forwarded-For instead of blocking all traffic.
+app.set("trust proxy", 1);
+
 // #region agent log
 agentDebugLog({
     hypothesisId: "BOOT",
