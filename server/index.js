@@ -14,7 +14,6 @@ const cookieParser = require("cookie-parser");
 const pool = require("./config/db");
 const { getTrustedOrigins } = require("./config/allowedOrigins");
 const { toNodeHandler } = require("better-auth/node");
-const { agentDebugLog } = require("./debug-agent-log");
 const auth = require("./auth");
 const {
   ensureAnonymousCsrfSid,
@@ -25,10 +24,10 @@ const { apiLimiter, consentWriteLimiter } = require("./middleware/api-rate-limit
 const authMiddleware = require("./middleware/auth");
 const { recordInitialConsent } = require("./controllers/consent.controller");
 
-const usersRoutes = require("./routes/users.routes");  // Import users routes
-const tasksRoutes = require("./routes/tasks.routes");  // Import tasks routes
-const sessionsRoutes = require("./routes/sessions.routes"); // Import sessions routes
-const subtasksRoutes = require("./routes/subtasks.routes");  // Import subtasks routes
+const usersRoutes = require("./routes/users.routes");
+const tasksRoutes = require("./routes/tasks.routes");
+const sessionsRoutes = require("./routes/sessions.routes");
+const subtasksRoutes = require("./routes/subtasks.routes");
 const chatRoutes = require("./routes/chat.routes");
 const uploadRoutes = require("./routes/upload.routes");
 const consentRoutes = require("./routes/consent.routes");
@@ -36,7 +35,6 @@ const adminRoutes = require("./routes/admin.routes");
 const aiRoutes = require("./routes/ai.routes");
 const spotifyRoutes = require("./routes/spotify.routes");
 const musicRoutes   = require("./routes/music.routes");
-
 
 console.log("Loaded server file:", __filename);
 
@@ -46,15 +44,6 @@ const PORT = process.env.PORT || 3000;
 // App Runner / ALB sit in front — trust one proxy hop so express-rate-limit
 // sees the real client IP from X-Forwarded-For instead of blocking all traffic.
 app.set("trust proxy", 1);
-
-// #region agent log
-agentDebugLog({
-    hypothesisId: "BOOT",
-    location: "index.js:startup",
-    message: "Express app initialized (debug session)",
-    data: { port: Number(PORT), nodeEnv: process.env.NODE_ENV || "(unset)" },
-});
-// #endregion
 
 // ─── Middleware ──────────────────────────────────────────────
 // CSP disabled so Vite/React assets and OAuth flows work without per-hash config
@@ -68,31 +57,11 @@ app.use(cookieParser());
 app.use(ensureAnonymousCsrfSid);
 app.use("/api", apiLimiter);
 
-// Log API hits before Better Auth (the generic logger below never sees /api/auth/*).
 app.use((req, res, next) => {
-    // #region agent log
-    const url = String(req.originalUrl || req.url || "");
-    if (req.method === "POST" && url.includes("/api/auth")) {
-        agentDebugLog({
-            hypothesisId: "H5b",
-            location: "index.js:api-middleware",
-            message: "POST /api/auth reached this Node process",
-            data: { path: req.path, originalUrl: url.slice(0, 160) },
-        });
-    }
-    if (req.method === "POST" && url.includes("sign-up/email")) {
-        agentDebugLog({
-            hypothesisId: "H5",
-            location: "index.js:api-middleware",
-            message: "sign-up/email POST reached this Node process",
-            data: { path: req.path, originalUrl: url.slice(0, 160) },
-        });
-    }
-    // #endregion
-    if (process.env.NODE_ENV !== "production" && req.path.startsWith("/api")) {
-        console.log(`[req] ${req.method} ${req.originalUrl || req.url}`);
-    }
-    next();
+  if (process.env.NODE_ENV !== "production" && req.path.startsWith("/api")) {
+    console.log(`[req] ${req.method} ${req.originalUrl || req.url}`);
+  }
+  next();
 });
 
 app.get("/api/csrf-token", (req, res) => {
@@ -176,7 +145,6 @@ app.get("/api/ready", async (req, res) => {
   }
 });
 
-
 app.get("/debug-sentry", (req, res, next) => {
   const error = new Error("My first Sentry error!");
   next(error);
@@ -250,14 +218,6 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`✓ Server is running and listening on port ${PORT}`);
-    // #region agent log
-    agentDebugLog({
-        hypothesisId: "BOOT2",
-        location: "index.js:listen",
-        message: "server listening",
-        data: { port: Number(PORT) },
-    });
-    // #endregion
   });
 }
 
