@@ -144,7 +144,12 @@ const AdminDashboard = () => {
     const handleRemovePlaylist = async (id: number, name: string) => {
         if (!confirm(`Remove "${name}" from curated playlists?`)) return;
         try {
-            await fetch(`/api/music/curated/${id}`, { method: "DELETE", credentials: "include" });
+            const res = await fetch(`/api/music/curated/${id}`, { method: "DELETE", credentials: "include" });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                toast.error((err as { message?: string }).message || "Failed to remove playlist.");
+                return;
+            }
             toast.success("Playlist removed.");
             fetchData();
         } catch {

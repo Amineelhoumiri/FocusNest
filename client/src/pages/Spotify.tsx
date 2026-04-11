@@ -118,7 +118,7 @@ const FreePlayer = () => {
     useYouTubePlayback();
 
   useEffect(() => {
-    fetch("/api/music/curated", { credentials: "include" })
+    fetch("/api/music/curated?source=youtube", { credentials: "include" })
       .then(r => r.json())
       .then(d => { setPlaylists(Array.isArray(d) ? d : []); })
       .catch(() => setPlaylists([]))
@@ -195,6 +195,14 @@ const FreePlayer = () => {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+
+      {/* YouTube player error banner */}
+      {error && (
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 text-[12px] font-medium text-red-400 bg-red-500/10 border-b border-red-500/20">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          {error}
+        </div>
+      )}
 
       {/* Ambient background — scoped to main column, not sidebar/navbar */}
       <AnimatePresence>
