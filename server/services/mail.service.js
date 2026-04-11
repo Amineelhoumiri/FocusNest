@@ -4,8 +4,6 @@
  * - Otherwise: logs the full message (local dev); in production without Resend, logs a warning.
  */
 
-const { agentDebugLog } = require("../debug-agent-log");
-
 const RESEND_API = "https://api.resend.com/emails";
 
 function mailFrom() {
@@ -67,39 +65,11 @@ function escapeHtml(s) {
  */
 async function sendTransactionalEmail(opts) {
     const { to, subject, text, html } = opts;
-    // #region agent log
-    agentDebugLog({
-        hypothesisId: "H4",
-        location: "mail.service.js:sendTransactionalEmail:entry",
-        message: "sendTransactionalEmail called",
-        data: {
-            subjectSnippet: String(subject || "").slice(0, 24),
-            hasResendKey: !!process.env.RESEND_API_KEY,
-            toDomain: to && typeof to === "string" && to.includes("@") ? to.split("@")[1] : "",
-        },
-    });
-    // #endregion
     logDevMailPreview(text);
     try {
         const sent = await sendViaResend({ to, subject, text, html });
-        // #region agent log
-        agentDebugLog({
-            hypothesisId: "H4",
-            location: "mail.service.js:sendTransactionalEmail:afterResend",
-            message: "Resend attempt result",
-            data: { sentViaResend: !!sent },
-        });
-        // #endregion
         if (sent) return;
     } catch (e) {
-        // #region agent log
-        agentDebugLog({
-            hypothesisId: "H4",
-            location: "mail.service.js:sendTransactionalEmail:resendCatch",
-            message: "Resend threw",
-            data: { err: String(e && e.message ? e.message : e) },
-        });
-        // #endregion
         console.error("[mail] Resend failed:", e.message);
         const errMsg = String(e && e.message ? e.message : e);
         if (

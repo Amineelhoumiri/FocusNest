@@ -132,8 +132,14 @@ export function useYouTubePlayer() {
             } catch { /* ignore */ }
           },
           onError: (e) => {
-            console.error("YouTube player error:", e.data);
-            if (mountedRef.current) setError("Playback error — check the playlist ID.");
+            console.error("YouTube player error code:", e.data);
+            const msg =
+              e.data === 150 || e.data === 101
+                ? "This video doesn't allow embedding — try a different playlist."
+                : e.data === 5
+                  ? "HTML5 player error — try a different video."
+                  : `Playback error (code ${e.data}) — check the playlist ID.`;
+            if (mountedRef.current) setError(msg);
           },
         },
       });

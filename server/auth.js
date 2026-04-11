@@ -5,7 +5,6 @@ const { betterAuth } = require("better-auth");
 const pool = require("./config/db");
 const { getTrustedOrigins } = require("./config/allowedOrigins");
 const { sendTransactionalEmail } = require("./services/mail.service");
-const { agentDebugLog } = require("./debug-agent-log");
 
 const rawPublicUrl = (process.env.BETTER_AUTH_URL || process.env.CLIENT_URL || "").replace(/\/$/, "");
 /** Required for correct OAuth redirect_uri and cookie issuance; must match the browser origin (e.g. Vite :8080). */
@@ -19,17 +18,7 @@ const baseURL = rawPublicUrl || undefined;
 async function buildVerificationUrlForEmail(email) {
   const secret = process.env.BETTER_AUTH_SECRET;
   const base = rawPublicUrl;
-  if (!secret || !base) {
-    // #region agent log
-    agentDebugLog({
-      hypothesisId: "H3",
-      location: "auth.js:buildVerificationUrlForEmail",
-      message: "verify URL null: missing secret or base",
-      data: { hasSecret: !!secret, hasBase: !!base },
-    });
-    // #endregion
-    return null;
-  }
+  if (!secret || !base) return null;
   try {
     const evFile = path.join(__dirname, "node_modules", "better-auth", "dist", "api", "routes", "email-verification.mjs");
     const { createEmailVerificationToken } = await import(pathToFileURL(evFile).href);
@@ -40,25 +29,9 @@ async function buildVerificationUrlForEmail(email) {
       undefined
     );
     const callbackURL = encodeURIComponent(`${base}/login?verified=1`);
-    const url = `${base}/verify-email?token=${token}&callbackURL=${callbackURL}`;
-    // #region agent log
-    agentDebugLog({
-      hypothesisId: "H3",
-      location: "auth.js:buildVerificationUrlForEmail",
-      message: "verify URL built",
-      data: { urlLength: url.length, hasTokenInUrl: url.includes("token=") },
-    });
-    // #endregion
-    return url;
+    return `${base}/verify-email?token=${token}&callbackURL=${callbackURL}`;
   } catch (e) {
-    // #region agent log
-    agentDebugLog({
-      hypothesisId: "H3",
-      location: "auth.js:buildVerificationUrlForEmail",
-      message: "build verify URL threw",
-      data: { err: String(e && e.message ? e.message : e) },
-    });
-    // #endregion
+    console.error("[auth] buildVerificationUrlForEmail failed:", e?.message || e);
     return null;
   }
 }
@@ -134,17 +107,6 @@ const auth = betterAuth({
      * Without this, repeat sign-ups send no mail and the API logs show no sendVerificationEmail.
      */
     onExistingUserSignUp: async ({ user }) => {
-      // #region agent log
-      agentDebugLog({
-        hypothesisId: "H1",
-        location: "auth.js:onExistingUserSignUp:entry",
-        message: "onExistingUserSignUp invoked",
-        data: {
-          emailVerified: !!user?.emailVerified,
-          emailLen: user?.email ? String(user.email).length : 0,
-        },
-      });
-      // #endregion
       if (user.emailVerified) {
         if (process.env.NODE_ENV !== "production") {
           console.info(`[auth] sign-up duplicate: ${user.email} (already verified)`);
@@ -156,14 +118,6 @@ const auth = betterAuth({
       }
       try {
         const verifyUrl = await buildVerificationUrlForEmail(user.email);
-        // #region agent log
-        agentDebugLog({
-          hypothesisId: "H1",
-          location: "auth.js:onExistingUserSignUp:afterBuildUrl",
-          message: "duplicate path verifyUrl result",
-          data: { hasVerifyUrl: !!verifyUrl },
-        });
-        // #endregion
         if (!verifyUrl) {
           console.error("[auth] onExistingUserSignUp: missing BETTER_AUTH_SECRET or public URL for verify link");
           return;
@@ -180,23 +134,7 @@ const auth = betterAuth({
             "— FocusNest",
           ].join("\n"),
         });
-        // #region agent log
-        agentDebugLog({
-          hypothesisId: "H1",
-          location: "auth.js:onExistingUserSignUp:afterSend",
-          message: "sendTransactionalEmail finished (duplicate path)",
-          data: { ok: true },
-        });
-        // #endregion
       } catch (err) {
-        // #region agent log
-        agentDebugLog({
-          hypothesisId: "H1",
-          location: "auth.js:onExistingUserSignUp:catch",
-          message: "onExistingUserSignUp error",
-          data: { err: String(err?.message || err) },
-        });
-        // #endregion
         console.error("[auth] onExistingUserSignUp:", err?.message || err);
       }
     },
@@ -215,17 +153,6 @@ const auth = betterAuth({
         }
         return;
       }
-      // #region agent log
-      agentDebugLog({
-        hypothesisId: "H2",
-        location: "auth.js:sendVerificationEmail",
-        message: "Better Auth called sendVerificationEmail (new-user path)",
-        data: {
-          emailLen: user?.email ? String(user.email).length : 0,
-          urlLen: url ? String(url).length : 0,
-        },
-      });
-      // #endregion
       if (process.env.NODE_ENV !== "production") {
         console.info(`[auth] sendVerificationEmail for ${user?.email || "(no email)"}`);
       }
@@ -243,14 +170,6 @@ const auth = betterAuth({
           ].join("\n"),
         });
       } catch (err) {
-        // #region agent log
-        agentDebugLog({
-          hypothesisId: "H2",
-          location: "auth.js:sendVerificationEmail:catch",
-          message: "sendVerificationEmail mail error",
-          data: { err: String(err?.message || err) },
-        });
-        // #endregion
         // Do NOT re-throw — a mail delivery failure must not block the auth flow.
         // The user can request a new verification link from the login page.
         console.error("[auth] sendVerificationEmail:", err?.message || err);
