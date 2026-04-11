@@ -94,7 +94,7 @@ export function useYouTubePlayer() {
       const div = document.createElement("div");
       div.id = PLAYER_DIV_ID;
       div.style.cssText =
-        "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;right:0;overflow:hidden;";
+        "position:fixed;width:1px;height:1px;visibility:hidden;pointer-events:none;bottom:0;right:0;overflow:hidden;";
       document.body.appendChild(div);
     }
 
@@ -106,7 +106,14 @@ export function useYouTubePlayer() {
         playerVars: { autoplay: 0, controls: 0 },
         events: {
           onReady: () => {
-            if (mountedRef.current) setReady(true);
+            if (!mountedRef.current) return;
+            // Safari requires allow="autoplay" on the iframe — add it after YouTube creates it.
+            const iframe = document.getElementById(PLAYER_DIV_ID)?.querySelector("iframe");
+            if (iframe) {
+              iframe.allow = "autoplay; encrypted-media";
+              iframe.setAttribute("allow", "autoplay; encrypted-media");
+            }
+            setReady(true);
           },
           onStateChange: (e) => {
             if (!mountedRef.current) return;
