@@ -94,7 +94,7 @@ export function useYouTubePlayer() {
       const div = document.createElement("div");
       div.id = PLAYER_DIV_ID;
       div.style.cssText =
-        "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;right:0;overflow:hidden;";
+        "position:fixed;width:1px;height:1px;visibility:hidden;pointer-events:none;bottom:0;right:0;overflow:hidden;";
       document.body.appendChild(div);
     }
 
@@ -106,7 +106,14 @@ export function useYouTubePlayer() {
         playerVars: { autoplay: 0, controls: 0 },
         events: {
           onReady: () => {
-            if (mountedRef.current) setReady(true);
+            if (!mountedRef.current) return;
+            // Safari requires allow="autoplay" on the iframe — add it after YouTube creates it.
+            const iframe = document.getElementById(PLAYER_DIV_ID)?.querySelector("iframe");
+            if (iframe) {
+              iframe.allow = "autoplay; encrypted-media";
+              iframe.setAttribute("allow", "autoplay; encrypted-media");
+            }
+            setReady(true);
           },
           onStateChange: (e) => {
             if (!mountedRef.current) return;
@@ -132,8 +139,14 @@ export function useYouTubePlayer() {
             } catch { /* ignore */ }
           },
           onError: (e) => {
-            console.error("YouTube player error:", e.data);
-            if (mountedRef.current) setError("Playback error — check the playlist ID.");
+            console.error("YouTube player error code:", e.data);
+            const msg =
+              e.data === 150 || e.data === 101
+                ? "This video doesn't allow embedding — try a different playlist."
+                : e.data === 5
+                  ? "HTML5 player error — try a different video."
+                  : `Playback error (code ${e.data}) — check the playlist ID.`;
+            if (mountedRef.current) setError(msg);
           },
         },
       });
@@ -165,6 +178,7 @@ export function useYouTubePlayer() {
 
   const playPlaylist = useCallback((rawId: string) => {
     if (!playerRef.current) throw new Error("Player not ready");
+    setError(null);
 
     // Normalise: extract ID from full YouTube URLs if needed
     let id = rawId.trim();
