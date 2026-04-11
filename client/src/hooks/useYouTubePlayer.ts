@@ -171,6 +171,7 @@ export function useYouTubePlayer() {
 
   const playPlaylist = useCallback((rawId: string) => {
     if (!playerRef.current) throw new Error("Player not ready");
+    setError(null);
 
     // Normalise: extract ID from full YouTube URLs if needed
     let id = rawId.trim();

@@ -118,7 +118,7 @@ const FreePlayer = () => {
     useYouTubePlayback();
 
   useEffect(() => {
-    fetch("/api/music/curated", { credentials: "include" })
+    fetch("/api/music/curated?source=youtube", { credentials: "include" })
       .then(r => r.json())
       .then(d => { setPlaylists(Array.isArray(d) ? d : []); })
       .catch(() => setPlaylists([]))
