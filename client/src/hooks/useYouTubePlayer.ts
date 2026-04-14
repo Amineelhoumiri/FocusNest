@@ -96,17 +96,37 @@ export function useYouTubePlayer() {
   useEffect(() => {
     mountedRef.current = true;
 
-    // Ensure hidden player container div exists
+    // Ensure hidden player container div exists.
+    // Safari blocks audio from elements with opacity:0 or visibility:hidden —
+    // use off-screen positioning instead so Safari doesn't treat it as hidden media.
     if (!document.getElementById(PLAYER_DIV_ID)) {
       const div = document.createElement("div");
       div.id = PLAYER_DIV_ID;
       div.style.cssText =
-        "position:fixed;width:1px;height:1px;visibility:hidden;pointer-events:none;bottom:0;right:0;overflow:hidden;";
+        "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none;";
       document.body.appendChild(div);
     }
 
     const initPlayer = () => {
       if (!mountedRef.current) return;
+
+      // Safari requires allow="autoplay" to be set the moment the iframe is created.
+      // onReady fires too late — Safari has already decided by then.
+      // Use a MutationObserver to catch the iframe the instant YouTube injects it.
+      const container = document.getElementById(PLAYER_DIV_ID);
+      const iframeObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.addedNodes) {
+            const el = node as HTMLElement;
+            if (el.tagName === "IFRAME") {
+              (el as HTMLIFrameElement).allow = "autoplay; encrypted-media";
+              iframeObserver.disconnect();
+            }
+          }
+        }
+      });
+      if (container) iframeObserver.observe(container, { childList: true });
+
       playerRef.current = new window.YT.Player(PLAYER_DIV_ID, {
         height: 1,
         width: 1,
@@ -114,12 +134,6 @@ export function useYouTubePlayer() {
         events: {
           onReady: () => {
             if (!mountedRef.current) return;
-            // Safari requires allow="autoplay" on the iframe — add it after YouTube creates it.
-            const iframe = document.getElementById(PLAYER_DIV_ID)?.querySelector("iframe");
-            if (iframe) {
-              iframe.allow = "autoplay; encrypted-media";
-              iframe.setAttribute("allow", "autoplay; encrypted-media");
-            }
             setReady(true);
           },
           onStateChange: (e) => {
