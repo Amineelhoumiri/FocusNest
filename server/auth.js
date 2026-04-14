@@ -1,8 +1,9 @@
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { betterAuth } = require("better-auth");
-const pool = require(path.join(__dirname, "config", "db"));
-const { getTrustedOrigins } = require(path.join(__dirname, "config", "allowedOrigins"));
+const pool = require("./config/db");
+const { getTrustedOrigins } = require("./config/allowedOrigins");
 const { sendTransactionalEmail } = require("./services/mail.service");
 
 const rawPublicUrl = (process.env.BETTER_AUTH_URL || process.env.CLIENT_URL || "").replace(/\/$/, "");
