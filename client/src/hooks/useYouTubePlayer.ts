@@ -61,6 +61,13 @@ export function useYouTubePlayer() {
   const mountedRef  = useRef(true);
   const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const playlistRef = useRef<string | null>(null);
+  const wantsPlaybackRef = useRef(false);
+
+  const isSafari = useCallback(() => {
+    // iOS Safari and macOS Safari both report "Safari" but not "Chrome"/"Chromium"/"Android".
+    const ua = navigator.userAgent;
+    return /Safari/i.test(ua) && !/Chrome|Chromium|Android/i.test(ua);
+  }, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -117,12 +124,22 @@ export function useYouTubePlayer() {
           },
           onStateChange: (e) => {
             if (!mountedRef.current) return;
-            const { PLAYING, ENDED } = window.YT.PlayerState;
+            const { PLAYING, ENDED, CUED } = window.YT.PlayerState;
             const isPlaying = e.data === PLAYING;
             const isEnded   = e.data === ENDED;
 
+            // Safari sometimes gets stuck in CUED after a user gesture; nudge it to start.
+            if (e.data === CUED && wantsPlaybackRef.current && isSafari()) {
+              setTimeout(() => {
+                try {
+                  playerRef.current?.playVideo();
+                } catch { /* ignore */ }
+              }, 0);
+            }
+
             if (isPlaying) startPolling(); else stopPolling();
 
+            if (isPlaying) wantsPlaybackRef.current = false;
             if (isEnded) { setPlayerState(null); return; }
 
             try {
@@ -179,6 +196,7 @@ export function useYouTubePlayer() {
   const playPlaylist = useCallback((rawId: string) => {
     if (!playerRef.current) throw new Error("Player not ready");
     setError(null);
+    wantsPlaybackRef.current = true;
 
     // Normalise: extract ID from full YouTube URLs if needed
     let id = rawId.trim();
@@ -204,8 +222,8 @@ export function useYouTubePlayer() {
     }
   }, []);
 
-  const pause     = useCallback(() => playerRef.current?.pauseVideo(), []);
-  const resume    = useCallback(() => playerRef.current?.playVideo(), []);
+  const pause     = useCallback(() => { wantsPlaybackRef.current = false; playerRef.current?.pauseVideo(); }, []);
+  const resume    = useCallback(() => { wantsPlaybackRef.current = true; playerRef.current?.playVideo(); }, []);
   const nextTrack = useCallback(() => playerRef.current?.nextVideo(), []);
   const prevTrack = useCallback(() => playerRef.current?.previousVideo(), []);
   const seek      = useCallback((s: number) => playerRef.current?.seekTo(s, true), []);
