@@ -144,6 +144,8 @@ jobs:
           tags: focusnest:deploy
           build-args: |
             VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
+            VITE_POSTHOG_KEY=${{ secrets.VITE_POSTHOG_KEY }}
+            VITE_POSTHOG_HOST=${{ vars.VITE_POSTHOG_HOST }}
 
       # Gate: block the deploy if the image has fixable HIGH/CRITICAL CVEs
       - name: Trivy — security gate

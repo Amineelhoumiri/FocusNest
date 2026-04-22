@@ -11,6 +11,10 @@ RUN npm ci
 COPY client/ ./
 ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_POSTHOG_KEY=
+ENV VITE_POSTHOG_KEY=$VITE_POSTHOG_KEY
+ARG VITE_POSTHOG_HOST=https://eu.i.posthog.com
+ENV VITE_POSTHOG_HOST=$VITE_POSTHOG_HOST
 RUN npm run build
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
