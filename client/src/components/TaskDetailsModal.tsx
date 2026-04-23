@@ -85,12 +85,16 @@ export const TaskDetailsModal = ({
   const handleUpdateTaskName = async () => {
     if (!taskName.trim()) return;
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_name: taskName }),
       });
+      if (!res.ok) {
+        toast.error("Failed to update task name");
+        return;
+      }
       onTaskUpdated();
     } catch (err) {
       toast.error("Failed to update task name");

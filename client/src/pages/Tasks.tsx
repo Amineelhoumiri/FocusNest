@@ -650,15 +650,21 @@ const Tasks = () => {
       const backendStatus = editTask.column === "todo" ? "Ready"
         : editTask.column.charAt(0).toUpperCase() + editTask.column.slice(1);
       try {
-        await fetch(`/api/tasks/${editTask.id}`, {
+        const res = await fetch(`/api/tasks/${editTask.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             task_name: editTask.name.trim(),
             task_status: backendStatus,
             notes: editTask.notes || null,
           }),
         });
+        if (!res.ok) {
+          toast.error("Failed to update task");
+          fetchTasks();
+          return;
+        }
         setTasks(prev => prev.map(t =>
           t.id === editTask.id
             ? { ...t, name: editTask.name, priority: editTask.priority, tags: editTask.tags, notes: editTask.notes }
@@ -708,7 +714,8 @@ const Tasks = () => {
       await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_name: name, task_status: backendStatus }),
+        credentials: "include",
+        body: JSON.stringify({ task_name: name, task_status: backendStatus, energy_level: "Low" }),
       });
       fetchTasks();
     } catch {

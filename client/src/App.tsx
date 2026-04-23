@@ -47,6 +47,7 @@ import posthog from "posthog-js";
 function PostHogPageView() {
   const location = useLocation();
   useEffect(() => {
+    if (!import.meta.env.VITE_POSTHOG_KEY) return;
     posthog.capture("$pageview", { $current_url: window.location.href });
   }, [location.pathname]);
   return null;

@@ -400,8 +400,10 @@ const StuckPanel = ({
             <p className="text-[30px] mb-3">🔋</p>
             <p className="text-[13px] font-semibold text-white/50 mb-1">No low-energy tasks yet</p>
             <p className="text-[12px] text-white/28 leading-relaxed">
-              Go to your task board and set a task's priority to{" "}
-              <span className="text-blue-400/70 font-semibold">Low</span> — it'll appear here next time.
+              This list uses each <span className="text-white/45 font-semibold">task&apos;s</span> energy (not
+              subtasks): set it to <span className="text-blue-400/70 font-semibold">Low</span> and keep the task
+              in <span className="text-white/45">Backlog</span> or <span className="text-white/45">To Do / Ready</span>
+              (not only Doing/Done) — it will show here on the next open.
             </p>
           </div>
         ) : (

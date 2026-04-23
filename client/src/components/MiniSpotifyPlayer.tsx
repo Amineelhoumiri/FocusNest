@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Pause, SkipForward, SkipBack, Music2, ListMusic, Shuffle } from "lucide-react";
 import { toast } from "sonner";
-import { useYouTubePlayer } from "@/hooks/useYouTubePlayer";
+import { useYouTubePlayback } from "@/context/YouTubePlaybackContext";
 import MusicPlayerCard from "@/components/ui/music-player-card";
 
 interface CuratedPlaylist {
@@ -26,7 +26,7 @@ const ytThumb = (videoId: string | null) =>
 
 const MiniMusicPlayer = ({ overlay = false }: Props) => {
   const { playerState, ready, error, pause, resume, nextTrack, prevTrack, playPlaylist } =
-    useYouTubePlayer();
+    useYouTubePlayback();
 
   const [curated, setCurated]       = useState<CuratedPlaylist[]>([]);
   const [showPicker, setShowPicker] = useState(false);
