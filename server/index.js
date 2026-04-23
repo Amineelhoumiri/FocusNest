@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const express = require("express");
 const Sentry = require("@sentry/node");
+const posthog = require("./posthog");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -47,7 +48,14 @@ app.set("trust proxy", 1);
 
 // ─── Middleware ──────────────────────────────────────────────
 // CSP disabled so Vite/React assets and OAuth flows work without per-hash config
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: false,
+  // Chrome strictly enforces no-referrer (Helmet's default), which strips the
+  // Referer header on YouTube iframe loads and causes error 150/101 for
+  // domain-restricted playlists. strict-origin-when-cross-origin sends the
+  // origin so YouTube can identify the embedding site, matching the browser default.
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+}));
 app.use(cors({
   origin: getTrustedOrigins(),
   credentials: true,
@@ -211,6 +219,7 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  posthog.captureException(err, req.user?.user_id ? String(req.user.user_id) : undefined);
   res.status(500).json({ error: "Internal server error" });
 });
 

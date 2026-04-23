@@ -41,7 +41,7 @@ interface BacklogTask {
   task_id: string;
   task_name: string;
   task_status: string;
-  priority?: string;
+  energy_level?: string;
 }
 
 // ─── Overlay card shell ───────────────────────────────────────────────────────
@@ -434,7 +434,7 @@ const StuckPanel = ({
                     {task.task_name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-semibold text-white/80 truncate">{task.task_name}</p>
+                    <p className="ph-no-capture text-[13px] font-semibold text-white/80 truncate">{task.task_name}</p>
                     <span className="text-[10px] text-white/35">
                       {task.task_status === "Ready" ? "To Do" : task.task_status}
                     </span>
@@ -668,6 +668,24 @@ const SessionActive = () => {
     return clearTimer;
   }, [isRunning, clearTimer]);
 
+  // Correct timer drift caused by browser throttling background tabs.
+  // When the tab becomes visible again, compute actual elapsed wall-clock time
+  // and snap secondsLeft to the accurate value.
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+      } else if (hiddenAt !== null && isRunning && !completedRef.current) {
+        const elapsedSec = Math.floor((Date.now() - hiddenAt) / 1000);
+        setSecondsLeft((s) => Math.max(0, s - elapsedSec));
+        hiddenAt = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [isRunning]);
+
   // ── On natural completion — FR-C-04 micro-modal branch ──────────────────────
   useEffect(() => {
     if (secondsLeft === 0 && !completedRef.current) {
@@ -788,11 +806,11 @@ const SessionActive = () => {
     try {
       const res = await fetch("/api/tasks", { credentials: "include" });
       const data: BacklogTask[] = await res.json();
-      // FR-C-05: only show low-priority (low-energy) tasks that aren't the current one
+      // FR-C-05: only show low-energy tasks that aren't the current one
       const available = data.filter(
         (t) =>
           t.task_id !== liveTaskId &&
-          t.priority === "low" &&
+          (t.energy_level || "").toLowerCase() === "low" &&
           (t.task_status === "Backlog" || t.task_status === "Ready")
       );
       setStuckTasks(available);
@@ -1025,7 +1043,7 @@ const SessionActive = () => {
             }}
           >
             <span
-              className="text-[12px] font-semibold truncate"
+              className="ph-no-capture text-[12px] font-semibold truncate"
               style={{ color: isDark ? "rgba(255,255,255,0.80)" : "rgba(15,23,42,0.82)" }}
             >
               {liveTaskTitle}

@@ -187,7 +187,7 @@ const TaskCard = ({
         }}
       >
         {/* Title */}
-        <p style={{
+        <p className="ph-no-capture" style={{
           fontSize: 13, fontWeight: 500, lineHeight: "1.4", marginBottom: 10,
           textDecoration: isDone ? "line-through" : "none",
           color: isDone
@@ -323,7 +323,7 @@ const TaskCard = ({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="bg-card border border-red-500/20 shadow-2xl sm:rounded-2xl max-w-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-foreground">Delete &ldquo;{task.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogTitle className="ph-no-capture text-foreground">Delete &ldquo;{task.name}&rdquo;?</AlertDialogTitle>
             <AlertDialogDescription className="text-red-400/80">This will permanently delete the task and all its subtasks.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-4">

@@ -40,6 +40,17 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 
 import CookieBanner from "@/components/CookieBanner";
 import { useAuth } from "@/context/AuthContext";
+import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
+import posthog from "posthog-js";
+
+function PostHogPageView() {
+  const location = useLocation();
+  useEffect(() => {
+    posthog.capture("$pageview", { $current_url: window.location.href });
+  }, [location.pathname]);
+  return null;
+}
 
 const queryClient = new QueryClient();
 
@@ -88,6 +99,7 @@ const App = () => (
                   <Route path="*" element={<NotFound />} />
                 </Routes>
                 <CookieBanner />
+                <PostHogPageView />
               </BrowserRouter>
               </TooltipProvider>
             </YouTubePlaybackProvider>

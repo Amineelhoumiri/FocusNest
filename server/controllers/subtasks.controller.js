@@ -8,6 +8,7 @@
 const pool = require("../config/db");
 const { encrypt, decrypt } = require("../services/encryption.service");
 const { generateTaskBreakdown } = require("../services/ai.service");
+const posthog = require("../posthog");
 
 // ─── Helper: validate UUID format ─────────────────────────────────────────────
 const isValidUUID = (uuid) => {
@@ -184,13 +185,27 @@ const createSubtask = async (req, res) => {
             [task_id, Buffer.from(encryptedName), energy_level, is_approved]
         );
 
+        const newSubtask = result.rows[0];
+
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "subtask_created",
+            properties: {
+                subtask_id: newSubtask.subtask_id,
+                task_id: task_id,
+                energy_level: newSubtask.energy_level,
+                is_approved: newSubtask.is_approved,
+            },
+        });
+
         return res.status(201).json({
-            ...result.rows[0],
+            ...newSubtask,
             subtask_name, // return plaintext to client
         });
 
     } catch (err) {
         console.error("createSubtask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Failed to create subtask.",
@@ -290,13 +305,28 @@ const updateSubtask = async (req, res) => {
             });
         }
 
+        const updatedSubtask = result.rows[0];
+
+        if (subtask_status !== undefined) {
+            posthog.capture({
+                distinctId: String(user_id),
+                event: "subtask_status_changed",
+                properties: {
+                    subtask_id: subtask_id,
+                    task_id: task_id,
+                    new_status: subtask_status,
+                },
+            });
+        }
+
         return res.status(200).json({
-            ...result.rows[0],
+            ...updatedSubtask,
             subtask_name: subtask_name || undefined,
         });
 
     } catch (err) {
         console.error("updateSubtask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Failed to update subtask.",
@@ -344,10 +374,20 @@ const deleteSubtask = async (req, res) => {
             });
         }
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "subtask_deleted",
+            properties: {
+                subtask_id: subtask_id,
+                task_id: task_id,
+            },
+        });
+
         return res.status(204).send();
 
     } catch (err) {
         console.error("deleteSubtask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Failed to delete subtask.",
@@ -407,6 +447,15 @@ const generateSubtasks = async (req, res) => {
             })
         );
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "ai_subtasks_generated",
+            properties: {
+                task_id: task_id,
+                subtask_count: created.length,
+            },
+        });
+
         return res.status(201).json({
             chat_opening: aiResult.chat_opening || null,
             chat_closing: aiResult.chat_closing || null,
@@ -414,6 +463,7 @@ const generateSubtasks = async (req, res) => {
         });
     } catch (err) {
         console.error("generateSubtasks error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to generate subtasks." });
     }
 };

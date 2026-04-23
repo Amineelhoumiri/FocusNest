@@ -96,36 +96,22 @@ export function useYouTubePlayer() {
   useEffect(() => {
     mountedRef.current = true;
 
-    // Ensure hidden player container div exists.
-    // Safari blocks audio from elements with opacity:0 or visibility:hidden —
-    // use off-screen positioning instead so Safari doesn't treat it as hidden media.
+    // Use a pre-configured <iframe> instead of a <div> so the allow="autoplay"
+    // attribute is already present when YouTube sets the src. Chrome evaluates
+    // the Permissions Policy at iframe navigation time — setting it via
+    // MutationObserver (after the element is created) is too late for Chrome.
+    // Safari also needs the attribute but is more lenient about when it's set.
     if (!document.getElementById(PLAYER_DIV_ID)) {
-      const div = document.createElement("div");
-      div.id = PLAYER_DIV_ID;
-      div.style.cssText =
-        "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none;";
-      document.body.appendChild(div);
+      const iframe = document.createElement("iframe");
+      iframe.id = PLAYER_DIV_ID;
+      iframe.allow = "autoplay; encrypted-media";
+      iframe.style.cssText =
+        "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;pointer-events:none;border:0;";
+      document.body.appendChild(iframe);
     }
 
     const initPlayer = () => {
       if (!mountedRef.current) return;
-
-      // Safari requires allow="autoplay" to be set the moment the iframe is created.
-      // onReady fires too late — Safari has already decided by then.
-      // Use a MutationObserver to catch the iframe the instant YouTube injects it.
-      const container = document.getElementById(PLAYER_DIV_ID);
-      const iframeObserver = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          for (const node of mutation.addedNodes) {
-            const el = node as HTMLElement;
-            if (el.tagName === "IFRAME") {
-              (el as HTMLIFrameElement).allow = "autoplay; encrypted-media";
-              iframeObserver.disconnect();
-            }
-          }
-        }
-      });
-      if (container) iframeObserver.observe(container, { childList: true });
 
       playerRef.current = new window.YT.Player(PLAYER_DIV_ID, {
         height: 1,
@@ -234,6 +220,10 @@ export function useYouTubePlayer() {
     } else {
       playerRef.current.loadPlaylist({ listType: "playlist", list: id, index: 0, startSeconds: 0 });
     }
+    // Safari requires playVideo() to be called synchronously within the user gesture handler.
+    // loadPlaylist/loadVideoById alone won't autoplay in Safari — calling playVideo() here
+    // grants the player Safari's autoplay permission before the async load completes.
+    try { playerRef.current.playVideo(); } catch { /* ignore if player not fully ready */ }
   }, []);
 
   const pause     = useCallback(() => { wantsPlaybackRef.current = false; playerRef.current?.pauseVideo(); }, []);

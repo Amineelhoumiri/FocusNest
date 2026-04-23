@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { encrypt, decrypt } = require("../services/encryption.service");
+const posthog = require("../posthog");
 
 // Helper to validate UUID format
 const isValidUUID = (uuid) => {
@@ -117,9 +118,20 @@ const createTask = async (req, res) => {
         const newTask = result.rows[0];
         newTask.task_name = await decrypt(newTask.task_name.toString());
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "task_created",
+            properties: {
+                task_id: newTask.task_id,
+                task_status: newTask.task_status,
+                energy_level: newTask.energy_level,
+            },
+        });
+
         return res.status(201).json(newTask);
     } catch (err) {
         console.error("createTask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to create task" });
     }
 };
@@ -199,9 +211,22 @@ const updateTask = async (req, res) => {
         const updatedTask = result.rows[0];
         updatedTask.task_name = await decrypt(updatedTask.task_name.toString());
 
+        if (task_status !== undefined) {
+            posthog.capture({
+                distinctId: String(user_id),
+                event: "task_status_changed",
+                properties: {
+                    task_id: task_id,
+                    new_status: task_status,
+                    energy_level: updatedTask.energy_level,
+                },
+            });
+        }
+
         return res.status(200).json(updatedTask);
     } catch (err) {
         console.error("updateTask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to update task" });
     }
 };
@@ -231,9 +256,16 @@ const deleteTask = async (req, res) => {
             return res.status(404).json({ error: "NOT_FOUND", message: "Task not found." });
         }
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "task_deleted",
+            properties: { task_id: task_id },
+        });
+
         return res.status(204).send();
     } catch (err) {
         console.error("deleteTask error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to delete task" });
     }
 };

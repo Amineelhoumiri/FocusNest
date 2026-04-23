@@ -13,6 +13,7 @@ interface ChatSession {
   created_at: string;
   updated_at: string;
   ended_at: string | null;
+  preview: string | null;
 }
 
 interface GroupedSessions {
@@ -254,8 +255,8 @@ const ChatHistory = () => {
 
                         {/* Info */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium text-foreground/90 leading-tight">
-                            Conversation
+                          <p className="text-[13px] font-medium text-foreground/90 leading-tight truncate">
+                            {s.preview || "Conversation"}
                           </p>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <Clock className="w-3 h-3 shrink-0" style={{ color: isDark ? "rgba(148,163,184,0.6)" : "rgba(83,74,183,0.40)" }} />

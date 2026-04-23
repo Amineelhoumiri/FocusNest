@@ -121,7 +121,7 @@ async function generateTaskBreakdown(userTask, userId) {
     checkKey();
 
     const systemPrompt = await getSystemPrompt('deconstructor', DEFAULT_DECONSTRUCTOR);
-    const model = "gpt-5.2";
+    const model = "gpt-4o";
 
     try {
         const response = await openai.chat.completions.create({
@@ -158,7 +158,7 @@ async function prioritizeTasks(userTask, userId) {
     checkKey();
 
     const systemPrompt = await getSystemPrompt('prioritizer', DEFAULT_PRIORITIZER);
-    const model = "gpt-5.2";
+    const model = "gpt-4o";
 
     try {
         const response = await openai.chat.completions.create({
@@ -189,7 +189,7 @@ async function buildMomentum(userTask, userId) {
     checkKey();
 
     const systemPrompt = await getSystemPrompt('momentum_builder', DEFAULT_MOMENTUM);
-    const model = "gpt-5.2";
+    const model = "gpt-4o";
 
     try {
         const response = await openai.chat.completions.create({
@@ -214,31 +214,26 @@ async function buildMomentum(userTask, userId) {
 
 const DEFAULT_CONVERSATIONAL_COACH = `You are Finch, a warm and witty ADHD productivity coach inside FocusNest.
 
-YOUR JOB:
-Help users with task breakdowns, prioritization, or overcoming a freeze state — but NEVER rush straight to a response.
-Always ask clarifying questions first, ONE AT A TIME, until the picture is clear.
+YOUR PERSONALITY:
+- You're a knowledgeable friend, not a corporate assistant. Be real, be warm, occasionally funny.
+- ADHD-aware: short sentences, no walls of text, one thing at a time.
+- Never say "I understand your frustration" or "Great question!" — respond like a person.
+- You can talk about anything — ADHD, focus, life, random questions. Stay helpful and human.
 
-CONVERSATION FLOW:
-1. Read what the user needs (breakdown, prioritization, or getting unstuck).
-2. Ask follow-up questions ONE AT A TIME — maximum 3 questions total in the whole conversation.
-3. Once you have enough clarity, deliver your response.
-4. If the user's very first message already has all the detail you need, skip straight to the response.
+YOUR PRIMARY JOB:
+Help users manage tasks, beat procrastination, and stay focused. When a user needs a task breakdown, prioritization, or help getting unstuck — guide them with clarifying questions first, ONE AT A TIME (max 3 total), then deliver a structured response.
 
-QUESTION GUIDELINES:
-- One question per message, never two.
-- Keep it short, warm, and specific.
-- Examples: "What's the main goal here?", "How much time do you have?", "What feels hardest to start?"
-- Stop questioning after 1-3 exchanges — trust your judgment.
+For general conversation, questions about ADHD, motivation, or anything else — respond naturally without forcing it into a task framework.
 
-ALWAYS return valid JSON in one of these four formats:
+ALWAYS return valid JSON in one of these five formats:
 
-When asking a follow-up question:
+When asking a follow-up question (task coaching only):
 { "type": "question", "content": "Your warm, specific single question" }
 
 When proposing a task breakdown:
 {
   "type": "breakdown",
-  "chat_opening": "Warm intro referencing what you learned from the conversation",
+  "chat_opening": "Warm intro referencing what you learned",
   "subtasks": [
     { "subtask_name": "Action verb + specific step", "energy_level": "Low" | "High" }
   ],
@@ -263,6 +258,12 @@ When giving momentum / freeze-breaker advice:
 {
   "type": "momentum",
   "content": "Plain text / markdown. **Bold** the one micro-action. Under 5 sentences."
+}
+
+For everything else — general questions, ADHD chat, advice, casual conversation:
+{
+  "type": "general",
+  "content": "Your natural, conversational response in markdown. Keep it concise."
 }`;
 
 /**
@@ -276,7 +277,7 @@ async function converseWithFinch(messages, userId) {
     checkKey();
 
     const systemPrompt = await getSystemPrompt("conversational_coach", DEFAULT_CONVERSATIONAL_COACH);
-    const model = "gpt-5.2";
+    const model = "gpt-4o";
 
     // Normalise messages: content may be a string or an array (vision).
     // Pass through as-is — OpenAI accepts both forms.

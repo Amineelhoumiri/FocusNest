@@ -1,6 +1,6 @@
 const express = require("express");
 const multer = require("multer");
-const { PDFParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 const auth = require("../middleware/auth");
 
 const router = express.Router();
@@ -25,9 +25,7 @@ router.post("/parse", auth, upload.single("file"), async (req, res) => {
 
   try {
     if (isPdf) {
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      await parser.destroy();
+      const result = await pdfParse(buffer);
       return res.json({ text: result.text, pages: result.numpages ?? null });
     }
 

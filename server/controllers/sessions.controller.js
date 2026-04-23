@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { encrypt } = require("../services/encryption.service");
+const posthog = require("../posthog");
 
 // Helper to validate UUID format
 const isValidUUID = (uuid) => {
@@ -40,9 +41,21 @@ const startSession = async (req, res) => {
       [user_id, task_id, true]
     );
 
-    return res.status(201).json(result.rows[0]);
+    const session = result.rows[0];
+
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "focus_session_started",
+      properties: {
+        session_id: session.session_id,
+        task_id: task_id,
+      },
+    });
+
+    return res.status(201).json(session);
   } catch (err) {
     console.error("startSession error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to start session" });
   }
 };
@@ -122,9 +135,23 @@ const endSession = async (req, res) => {
       return res.status(404).json({ error: "NOT_FOUND", message: "Active session not found or already ended." });
     }
 
-    return res.status(200).json(result.rows[0]);
+    const endedSession = result.rows[0];
+
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "focus_session_ended",
+      properties: {
+        session_id: session_id,
+        task_id: endedSession.task_id,
+        outcome: outcome || null,
+        reflection_type: reflection_type || null,
+      },
+    });
+
+    return res.status(200).json(endedSession);
   } catch (err) {
     console.error("endSession error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to end session" });
   }
 };
@@ -158,9 +185,19 @@ const switchSession = async (req, res) => {
       return res.status(404).json({ error: "NOT_FOUND", message: "Active session not found." });
     }
 
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "focus_session_task_switched",
+      properties: {
+        session_id: session_id,
+        new_task_id: new_task_id,
+      },
+    });
+
     return res.status(200).json(result.rows[0]);
   } catch (err) {
     console.error("switchSession error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to switch session" });
   }
 };

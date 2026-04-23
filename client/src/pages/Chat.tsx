@@ -428,7 +428,7 @@ const Chat = () => {
       let breakdownPayload: Message["breakdown"] = undefined
       if (typeof result === "string") {
         aiText = result
-      } else if (type === "question" || type === "momentum") {
+      } else if (type === "question" || type === "momentum" || type === "general") {
         aiText = result.content ?? ""
       } else if (type === "breakdown") {
         const rawSubs: BreakdownSubtaskRow[] = Array.isArray(result.subtasks) ? result.subtasks : []
@@ -682,7 +682,7 @@ const Chat = () => {
                   >
                     {message.role === "user" ? (
                       <div className="flex justify-end">
-                        <div className="max-w-[72%] px-4 py-3 rounded-[18px_18px_4px_18px]
+                        <div className="ph-no-capture max-w-[72%] px-4 py-3 rounded-[18px_18px_4px_18px]
                                         text-[13px] leading-relaxed
                                         bg-violet-500/18 border border-violet-400/28"
                              style={{ color: isDark ? "rgba(255,255,255,0.90)" : "#1a1830" }}>
@@ -696,7 +696,7 @@ const Chat = () => {
                                         shrink-0 mt-0.5">
                           <FinchBird size={14} variant="white" />
                         </div>
-                        <div className="max-w-[82%] px-4 py-3 rounded-[4px_18px_18px_18px]
+                        <div className="ph-no-capture max-w-[82%] px-4 py-3 rounded-[4px_18px_18px_18px]
                                         text-[13px] leading-relaxed
                                         bg-muted/70 border border-border/50
                                         dark:bg-white/[0.04] dark:border-white/[0.08]
