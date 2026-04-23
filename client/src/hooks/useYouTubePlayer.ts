@@ -152,8 +152,6 @@ export function useYouTubePlayer() {
   }, []);
 
   const applyPlaylistLoad = useCallback((rawId: string) => {
-    const p = globalYouTubePlayer;
-    if (!p) return;
     setErrorRef.current(null);
     wantsPlaybackRef.current = true;
 
@@ -172,6 +170,9 @@ export function useYouTubePlayer() {
     const isVideoId = /^[A-Za-z0-9_-]{11}$/.test(id);
 
     if (isVideoId) {
+      // Single video — needs the main YT player. Queue if not ready yet.
+      const p = globalYouTubePlayer;
+      if (!p) { pendingPlayRef.current = rawId; return; }
       clearVideoseriesFallback();
       if (typeof p.loadVideoById !== "function") return;
       p.loadVideoById(id);
@@ -179,8 +180,9 @@ export function useYouTubePlayer() {
       return;
     }
 
-    // Playlist — always use the videoseries embed (loadPlaylist is unreliable in embedded players)
-    try { p.stopVideo?.(); } catch { /* */ }
+    // Playlist — videoseries fallback works without the main player; start immediately.
+    const p = globalYouTubePlayer;
+    if (p) { try { p.stopVideo?.(); } catch { /* */ } }
     startVideoseriesFallback(id);
     setPlayerStateRef.current({
       isPlaying: true,
@@ -323,13 +325,6 @@ export function useYouTubePlayer() {
 
   const playPlaylist = useCallback(
     (rawId: string) => {
-      if (!globalYouTubePlayer && !playerRef.current) {
-        throw new Error("Player not ready");
-      }
-      if (!apiReadyRef.current) {
-        pendingPlayRef.current = rawId;
-        return;
-      }
       applyPlaylistLoad(rawId);
     },
     [applyPlaylistLoad]

@@ -31,7 +31,7 @@ if (import.meta.env.VITE_POSTHOG_KEY) {
     capture_pageleave: true,
     person_profiles: "identified_only",
     session_recording: {
-      maskAllInputs: true,         // all <input> / <textarea> fields are masked
+      maskAllInputs: true,
       maskInputOptions: {
         text: true,
         search: true,
@@ -39,8 +39,9 @@ if (import.meta.env.VITE_POSTHOG_KEY) {
         password: true,
         textarea: true,
       },
+      minimum_duration: 3000, // skip sessions under 3 s (bounces)
+      sampleRate: 0.5,        // record 50% of sessions — halves storage & replay sizes
       // Elements marked with class "ph-no-capture" are excluded entirely from recordings.
-      // Applied to all user-generated text (task names, chat messages) — see individual components.
     },
   });
 }

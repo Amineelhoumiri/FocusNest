@@ -56,6 +56,10 @@ app.use(helmet({
   // origin so YouTube can identify the embedding site, matching the browser default.
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
 }));
+// PostHog session replay fetches /assets/* cross-origin to render CSS — allow it.
+// Must come before the credentialed CORS middleware so the * header is set first;
+// the second middleware won't override it for origins not in getTrustedOrigins().
+app.use("/assets", cors({ origin: "*" }));
 app.use(cors({
   origin: getTrustedOrigins(),
   credentials: true,

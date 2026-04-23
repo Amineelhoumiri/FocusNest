@@ -37,11 +37,12 @@ interface SpotifyCuratedRow {
   description: string | null;
 }
 
-interface BacklogTask {
-  task_id: string;
-  task_name: string;
-  task_status: string;
+interface StuckSubtask {
+  subtask_id: string;
+  subtask_name: string;
+  subtask_status: string;
   energy_level?: string;
+  is_approved?: boolean;
 }
 
 // ─── Overlay card shell ───────────────────────────────────────────────────────
@@ -336,16 +337,16 @@ const MicroTimerModal = ({
 // ─── FR-C-05: I'm Stuck — task switcher panel ─────────────────────────────────
 
 const StuckPanel = ({
-  tasks,
+  subtasks,
   loading,
-  currentTaskId,
+  currentSubtaskId,
   onSwitch,
   onClose,
 }: {
-  tasks: BacklogTask[];
+  subtasks: StuckSubtask[];
   loading: boolean;
-  currentTaskId: string;
-  onSwitch: (t: BacklogTask) => void;
+  currentSubtaskId: string;
+  onSwitch: (s: StuckSubtask) => void;
   onClose: () => void;
 }) => (
   <motion.div
@@ -379,8 +380,8 @@ const StuckPanel = ({
       <div className="px-5 pt-3 pb-6">
         <div className="flex items-start justify-between mb-1">
           <div>
-            <h3 className="text-[17px] font-extrabold text-white/90">Switch to a low-energy task</h3>
-            <p className="text-[12px] text-white/38 mt-0.5">Timer keeps running — no pressure</p>
+            <h3 className="text-[17px] font-extrabold text-white/90">Switch to another subtask</h3>
+            <p className="text-[12px] text-white/38 mt-0.5">Stay in the same task — timer keeps running</p>
           </div>
           <button onClick={onClose} className="mt-1 text-white/35 hover:text-white/65 transition-colors">
             <X className="w-4 h-4" />
@@ -393,56 +394,54 @@ const StuckPanel = ({
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-white/35 text-[13px]">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Loading tasks…
+            Loading subtasks…
           </div>
-        ) : tasks.length === 0 ? (
+        ) : subtasks.length === 0 ? (
           <div className="py-8 text-center px-2">
-            <p className="text-[30px] mb-3">🔋</p>
-            <p className="text-[13px] font-semibold text-white/50 mb-1">No low-energy tasks yet</p>
+            <p className="text-[30px] mb-3">🧩</p>
+            <p className="text-[13px] font-semibold text-white/50 mb-1">No other subtasks available</p>
             <p className="text-[12px] text-white/28 leading-relaxed">
-              This list uses each <span className="text-white/45 font-semibold">task&apos;s</span> energy (not
-              subtasks): set it to <span className="text-blue-400/70 font-semibold">Low</span> and keep the task
-              in <span className="text-white/45">Backlog</span> or <span className="text-white/45">To Do / Ready</span>
-              (not only Doing/Done) — it will show here on the next open.
+              Add more subtasks to this task in the{" "}
+              <span className="text-white/45 font-semibold">Tasks board</span> to see them here.
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {tasks.map((task) => (
-                <button
-                  key={task.task_id}
-                  onClick={() => onSwitch(task)}
-                  disabled={task.task_id === currentTaskId}
-                  className={cn(
-                    "flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-left transition-all duration-150",
-                    "disabled:opacity-30 disabled:cursor-not-allowed"
-                  )}
-                  style={{
-                    background: "rgba(96,165,250,0.06)",
-                    border: "0.5px solid rgba(96,165,250,0.22)",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (task.task_id !== currentTaskId)
-                      (e.currentTarget as HTMLElement).style.background = "rgba(96,165,250,0.12)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = "rgba(96,165,250,0.06)";
-                  }}
+            {subtasks.map((sub) => (
+              <button
+                key={sub.subtask_id}
+                onClick={() => onSwitch(sub)}
+                disabled={sub.subtask_id === currentSubtaskId}
+                className={cn(
+                  "flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl text-left transition-all duration-150",
+                  "disabled:opacity-30 disabled:cursor-not-allowed"
+                )}
+                style={{
+                  background: "rgba(96,165,250,0.06)",
+                  border: "0.5px solid rgba(96,165,250,0.22)",
+                }}
+                onMouseEnter={(e) => {
+                  if (sub.subtask_id !== currentSubtaskId)
+                    (e.currentTarget as HTMLElement).style.background = "rgba(96,165,250,0.12)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.background = "rgba(96,165,250,0.06)";
+                }}
+              >
+                <div
+                  className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-bold"
+                  style={{ background: "rgba(96,165,250,0.18)", color: "#93c5fd" }}
                 >
-                  <div
-                    className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-[11px] font-bold"
-                    style={{ background: "rgba(96,165,250,0.18)", color: "#93c5fd" }}
-                  >
-                    {task.task_name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="ph-no-capture text-[13px] font-semibold text-white/80 truncate">{task.task_name}</p>
-                    <span className="text-[10px] text-white/35">
-                      {task.task_status === "Ready" ? "To Do" : task.task_status}
-                    </span>
-                  </div>
-                  <Shuffle className="w-3.5 h-3.5 shrink-0" style={{ color: "rgba(96,165,250,0.45)" }} />
-                </button>
+                  {sub.subtask_name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="ph-no-capture text-[13px] font-semibold text-white/80 truncate">{sub.subtask_name}</p>
+                  <span className="text-[10px] text-white/35">
+                    {sub.energy_level ? `${sub.energy_level} energy` : sub.subtask_status}
+                  </span>
+                </div>
+                <Shuffle className="w-3.5 h-3.5 shrink-0" style={{ color: "rgba(96,165,250,0.45)" }} />
+              </button>
             ))}
           </div>
         )}
@@ -480,12 +479,13 @@ const SessionActive = () => {
   // ── Feature state ────────────────────────────────────────────────────────────
   const [showReflection, setShowReflection] = useState(false);
   const [showMicroModal, setShowMicroModal] = useState(false);
-  const [showStuckPanel, setShowStuckPanel] = useState(false);
-  const [stuckTasks,     setStuckTasks]     = useState<BacklogTask[]>([]);
-  const [stuckLoading,   setStuckLoading]   = useState(false);
-  // Live task label — can change after an "I'm Stuck" switch
-  const [liveTaskTitle, setLiveTaskTitle]   = useState(subtaskTitle || taskTitle);
-  const [liveTaskId,    setLiveTaskId]      = useState(taskId);
+  const [showStuckPanel,  setShowStuckPanel]  = useState(false);
+  const [stuckSubtasks,   setStuckSubtasks]   = useState<StuckSubtask[]>([]);
+  const [stuckLoading,    setStuckLoading]    = useState(false);
+  // Live task/subtask — can change after an "I'm Stuck" switch
+  const [liveTaskTitle,   setLiveTaskTitle]   = useState(subtaskTitle || taskTitle);
+  const [liveTaskId,      setLiveTaskId]      = useState(taskId);
+  const [liveSubtaskId,   setLiveSubtaskId]   = useState(subtaskId);
 
   // ── FR-C-06: Done-by calculator ──────────────────────────────────────────────
   const doneByTime = useMemo(() => {
@@ -781,8 +781,8 @@ const SessionActive = () => {
     setIsRunning(false);
     const minutesFocused = Math.max(1, Math.ceil((totalSeconds - secondsLeft) / 60));
     const xpGained = minutesFocused * 2;
-    if (subtaskId && taskId) {
-      fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+    if (liveSubtaskId && liveTaskId) {
+      fetch(`/api/tasks/${liveTaskId}/subtasks/${liveSubtaskId}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -803,43 +803,32 @@ const SessionActive = () => {
 
   // ── FR-C-05: I'm Stuck ───────────────────────────────────────────────────────
   const openStuckPanel = useCallback(async () => {
+    if (!liveTaskId) return;
     setShowStuckPanel(true);
     setStuckLoading(true);
     try {
-      const res = await fetch("/api/tasks", { credentials: "include" });
-      const data: BacklogTask[] = await res.json();
-      // FR-C-05: only show low-energy tasks that aren't the current one
+      const res = await fetch(`/api/tasks/${liveTaskId}/subtasks`, { credentials: "include" });
+      const data: StuckSubtask[] = await res.json();
+      // Show other subtasks in the same task that aren't done/doing and are approved
       const available = data.filter(
-        (t) =>
-          t.task_id !== liveTaskId &&
-          (t.energy_level || "").toLowerCase() === "low" &&
-          (t.task_status === "Backlog" || t.task_status === "Ready")
+        (s) =>
+          s.subtask_id !== liveSubtaskId &&
+          s.is_approved !== false &&
+          s.subtask_status !== "Done"
       );
-      setStuckTasks(available);
+      setStuckSubtasks(available);
     } catch {
-      setStuckTasks([]);
+      setStuckSubtasks([]);
     } finally {
       setStuckLoading(false);
     }
-  }, [liveTaskId]);
+  }, [liveTaskId, liveSubtaskId]);
 
-  const handleStuckSwitch = useCallback(async (task: BacklogTask) => {
-    if (!sessionIdRef.current) return;
-    try {
-      const res = await fetch(`/api/sessions/${sessionIdRef.current}/switch`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ new_task_id: task.task_id }),
-      });
-      if (!res.ok) throw new Error("Switch failed");
-      setLiveTaskTitle(task.task_name);
-      setLiveTaskId(task.task_id);
-      setShowStuckPanel(false);
-      toast.success(`Switched to "${task.task_name}"`);
-    } catch {
-      toast.error("Couldn't switch task — try again.");
-    }
+  const handleStuckSwitch = useCallback((subtask: StuckSubtask) => {
+    setLiveTaskTitle(subtask.subtask_name);
+    setLiveSubtaskId(subtask.subtask_id);
+    setShowStuckPanel(false);
+    toast.success(`Switched to "${subtask.subtask_name}"`);
   }, []);
 
   // ── Music controls ────────────────────────────────────────────────────────────
@@ -1055,7 +1044,7 @@ const SessionActive = () => {
 
         {/* Subtask done */}
         <div className="flex items-center gap-2">
-          {subtaskId && (
+          {liveSubtaskId && (
             <button
               type="button"
               onClick={handleSubtaskDone}
@@ -1404,9 +1393,9 @@ const SessionActive = () => {
       <AnimatePresence>
         {showStuckPanel && (
           <StuckPanel
-            tasks={stuckTasks}
+            subtasks={stuckSubtasks}
             loading={stuckLoading}
-            currentTaskId={liveTaskId}
+            currentSubtaskId={liveSubtaskId}
             onSwitch={handleStuckSwitch}
             onClose={() => setShowStuckPanel(false)}
           />
