@@ -92,6 +92,7 @@ interface Message {
   suggestedTask?: { id: string; title: string }
   /** Finch breakdown — user can Accept to create task + subtasks on the Kanban */
   breakdown?: {
+    task_name?: string
     subtasks: BreakdownSubtaskRow[]
     accepted?: boolean
   }
@@ -247,8 +248,8 @@ const Chat = () => {
     if (!msg?.breakdown?.subtasks?.length || msg.breakdown.accepted) return
 
     const priorUser = [...messages.slice(0, messageIndex)].reverse().find((m) => m.role === "user")
-    const parentTitle =
-      (priorUser?.content ?? "").trim().slice(0, 200) || "Task from Finch"
+    const firstLine = (priorUser?.content ?? "").trim().split(/[\n.!?]/)[0].trim().slice(0, 80)
+    const parentTitle = msg.breakdown.task_name?.trim() || firstLine || "Task from Finch"
 
     const subs = msg.breakdown.subtasks.filter((s) => s.subtask_name?.trim())
     const taskEnergy = subs.some((s) => normSubtaskEnergy(s.energy_level) === "High") ? "High" : "Low"
@@ -439,7 +440,7 @@ const Chat = () => {
             .join("\n") +
           (result.chat_closing ? "\n\n" + result.chat_closing : "")
         if (subtasks.length > 0) {
-          breakdownPayload = { subtasks, accepted: false }
+          breakdownPayload = { task_name: result.task_name, subtasks, accepted: false }
         }
       } else if (type === "prioritize") {
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +

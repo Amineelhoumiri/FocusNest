@@ -1,3 +1,5 @@
+// Manages dark/light theme. Persists to localStorage and toggles the "dark" class on
+// <html> so Tailwind's dark: variants apply globally without a flash on reload.
 import React, { createContext, useContext, useEffect, useState } from "react";
 
 type Theme = "dark" | "light";

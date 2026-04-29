@@ -76,19 +76,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Vends a CSRF token to the client on app load; stored and auto-injected as
+// x-csrf-token header by lib/installCsrfFetch.ts on every mutating request.
 app.get("/api/csrf-token", (req, res) => {
   const token = generateCsrfToken(req, res);
   res.status(200).json({ csrfToken: token });
 });
+// Global double-submit CSRF protection — every POST/PATCH/DELETE mounted after
+// this line requires a valid x-csrf-token header that matches the CSRF cookie.
 app.use(doubleCsrfProtection);
 
 // ─── App consent endpoint (must run before Better Auth catch-all) ───────────
 // FR-L-03 / dissertation spec: POST /api/auth/consent — JSON body, session cookie auth.
+// Mounted before the Better Auth wildcard so Express handles it, not Better Auth.
 app.post(
   "/api/auth/consent",
-  consentWriteLimiter,
-  express.json(),
-  authMiddleware,
+  consentWriteLimiter, // stricter rate limit (30 req/min) — consent writes are sensitive
+  express.json(),      // body parsing declared here because Better Auth needs raw body above
+  authMiddleware,      // validates session cookie → populates req.user
   recordInitialConsent
 );
 

@@ -2,6 +2,8 @@ const OpenAI = require("openai");
 require("dotenv").config();
 const pool = require("../config/db");
 
+// Initialised with a dummy key so the module loads cleanly in environments where
+// OPENAI_API_KEY is absent (e.g. CI). checkKey() gates every actual API call.
 let openai;
 try {
     openai = new OpenAI({
@@ -11,12 +13,19 @@ try {
     console.error("Failed to initialize OpenAI client:", e.message);
 }
 
+// Called at the top of every public function — throws early so callers receive a
+// clear error rather than a cryptic 401 from OpenAI.
 function checkKey() {
     if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === "dummy-key-to-prevent-crash") {
         throw new Error("Missing OpenAI API Key in .env file.");
     }
 }
 
+/**
+ * Fetches a system prompt from the system_prompts table by key.
+ * Falls back to the hardcoded default if the row is missing or the query fails,
+ * allowing prompts to be updated at runtime via the DB without a redeploy.
+ */
 async function getSystemPrompt(key, fallbackPrompt) {
     try {
         const res = await pool.query("SELECT prompt FROM system_prompts WHERE key = $1", [key]);
@@ -29,6 +38,10 @@ async function getSystemPrompt(key, fallbackPrompt) {
     return fallbackPrompt;
 }
 
+/**
+ * Persists OpenAI token counts to openai_usage for cost tracking and admin reporting.
+ * Non-blocking — a logging failure must never surface as an error to the user.
+ */
 async function logTokenUsage(userId, usageData, model) {
     if (!userId || !usageData) return;
     try {
@@ -115,7 +128,9 @@ Example: "It's okay to feel stuck; your brain is just trying to protect you from
 
 /**
  * 1. The Deconstructor (Task Breakdown)
- * Generates an atomic task breakdown for neurodivergent users.
+ * Breaks a user's task into 3-5 atomic steps designed for ADHD users, with the
+ * first step always a sub-60-second "Micro-Win" to lower the activation barrier.
+ * Returns a JSON object: { chat_opening, subtasks[], chat_closing }.
  */
 async function generateTaskBreakdown(userTask, userId) {
     checkKey();
@@ -152,7 +167,9 @@ async function generateTaskBreakdown(userTask, userId) {
 
 /**
  * 2. The Prioritizer (Impact vs. Urgency)
- * Categorize a messy "brain dump" to eliminate decision fatigue.
+ * Maps a "brain dump" of tasks onto the Eisenhower Matrix and surfaces exactly
+ * ONE "Focus Now" item to prevent choice paralysis — a common ADHD trigger.
+ * Returns a JSON object: { chat_opening, focus_now, matrix{}, chat_closing }.
  */
 async function prioritizeTasks(userTask, userId) {
     checkKey();
@@ -183,7 +200,9 @@ async function prioritizeTasks(userTask, userId) {
 
 /**
  * 3. The Momentum Builder (The Freeze-Breaker)
- * Rescue a user currently experiencing a "freeze response" or "ADHD Paralysis."
+ * Targets the ADHD "freeze response" — gives exactly one physical micro-action
+ * rather than a list or plan, minimising cognitive load to get the user moving.
+ * Returns plain text/markdown (no JSON) — the prompt intentionally avoids structure.
  */
 async function buildMomentum(userTask, userId) {
     checkKey();
@@ -233,6 +252,7 @@ When asking a follow-up question (task coaching only):
 When proposing a task breakdown:
 {
   "type": "breakdown",
+  "task_name": "Short, specific title for this task (max 50 chars, no punctuation at the end)",
   "chat_opening": "Warm intro referencing what you learned",
   "subtasks": [
     { "subtask_name": "Action verb + specific step", "energy_level": "Low" | "High" }
@@ -267,8 +287,11 @@ For everything else — general questions, ADHD chat, advice, casual conversatio
 }`;
 
 /**
- * Conversational Finch — handles the full multi-turn chat with clarifying questions.
- * Accepts the full conversation history and returns a typed JSON response.
+ * Conversational Finch — handles the full multi-turn chat session.
+ * Receives the complete message history so Finch can ask up to 3 clarifying
+ * questions before committing to a breakdown, prioritization, or momentum response.
+ * Returns a typed JSON object ({ type, ...fields }) so the client can render
+ * the correct UI component without parsing free-text.
  *
  * @param {Array<{role: string, content: string}>} messages - Full conversation history
  * @param {string} userId - For token usage logging

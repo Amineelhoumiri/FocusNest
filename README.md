@@ -77,6 +77,8 @@ Browser
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system diagram and data-flow details.
 
+
+
 ---
 
 ## Quick Start — Docker
@@ -237,16 +239,14 @@ FocusNest/
 ├── database/
 │   ├── schema/
 │   │   └── focusnest_db.sql # Canonical database schema
-│   ├── migrations/          # (see server/scripts/migrations/)
 │   ├── queries/             # Reference SQL queries
 │   └── seed/
 │       └── create_test_user.sql
 ├── docs/
-│   ├── README.md            # Index of all documentation
 │   ├── ARCHITECTURE.md      # System design and data-flow
+│   ├── DEPLOYMENT.md        # AWS App Runner + RDS deployment guide
+│   ├── SECURITY.md          # Security policy and vulnerability reporting
 │   ├── BACKEND_DOCUMENTATION.md
-│   ├── focusnest_mvp.md
-│   ├── focusnest_terms_consent_spec.md
 │   ├── swagger.yaml         # OpenAPI 3.0 spec
 │   └── token_costs.json
 ├── server/                  # Express/Node.js API
@@ -306,7 +306,7 @@ Triggered by a version tag (`v*`) or manual workflow dispatch.
 
 ## Deployment
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the complete AWS App Runner + RDS deployment guide, including:
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete AWS App Runner + RDS deployment guide, including:
 
 - ECR repository setup
 - VPC connector and security group configuration
@@ -318,13 +318,13 @@ See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the complete AWS App Runner + RDS deplo
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch conventions, commit style, and the PR process.
+Fork the repo, create a feature branch off `dev`, and open a pull request against `dev`. Keep commits small and focused. The CI pipeline (tests + lint + security scans) must pass before merge.
 
 ---
 
 ## Security
 
-Vulnerability reports: see [`SECURITY.md`](SECURITY.md).
+Vulnerability reports: see [`docs/SECURITY.md`](docs/SECURITY.md).
 
 Key security properties at a glance:
 

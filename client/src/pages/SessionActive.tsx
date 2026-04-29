@@ -814,7 +814,8 @@ const SessionActive = () => {
         (s) =>
           s.subtask_id !== liveSubtaskId &&
           s.is_approved !== false &&
-          s.subtask_status !== "Done"
+          s.subtask_status !== "Done" &&
+          s.energy_level === "Low"
       );
       setStuckSubtasks(available);
     } catch {

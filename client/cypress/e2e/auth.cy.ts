@@ -1,6 +1,6 @@
 // E2E tests for authentication flows
-// Against production: registration is skipped (email verification required).
-// Set loginEmail / loginPassword in cypress.env.json for a pre-verified account.
+// Registration runs only when baseUrl is not production (email verification on focusnest.uk).
+// Override credentials: cypress.env.json or CYPRESS_loginEmail / CYPRESS_loginPassword.
 
 const TEST_EMAIL = `e2e_${Date.now()}@focusnest.dev`;
 const TEST_PASSWORD = "TestPass123!";
@@ -9,52 +9,51 @@ const TEST_NAME = "E2E User";
 const LOGIN_EMAIL = Cypress.env("loginEmail") ?? "login_e2e@focusnest.dev";
 const LOGIN_PASSWORD = Cypress.env("loginPassword") ?? "TestPass123!";
 
-describe("Registration flow", () => {
-  before(function () {
-    // Production requires email verification before the user lands on /dashboard.
-    // This test only runs against a local stack where verification is not enforced.
-    if (Cypress.config("baseUrl")?.toString().includes("focusnest.uk")) this.skip();
+// Production: email verification blocks landing on /dashboard — omit this suite (no “pending” noise).
+const isProdE2E = (Cypress.config("baseUrl") ?? "").toString().includes("focusnest.uk");
+
+if (!isProdE2E) {
+  describe("Registration flow", () => {
+    it("registers a new account and lands on dashboard", () => {
+      cy.visit("/register");
+
+      // Step 1: fill registration form
+      cy.get('input[type="text"]').first().type(TEST_NAME);
+      cy.get('input[type="date"]').type("2000-01-15");
+      cy.get('input[type="email"]').type(TEST_EMAIL);
+      cy.get('input[type="password"]').first().type(TEST_PASSWORD);
+      cy.get('input[type="password"]').last().type(TEST_PASSWORD);
+
+      // Step 2: legal + core data consent (required to enable submit)
+      cy.contains("button", /^continue$/i).click();
+
+      // Terms dialog: scroll gate then "I agree"
+      cy.contains("button", /^terms & conditions$/i).click();
+      cy.get('[role="dialog"] [data-state="open"]')
+        .find("div")
+        .contains(/summary for quick reading/i)
+        .should("be.visible");
+      cy.get('[role="dialog"] [data-state="open"]')
+        .find('div[class*="overflow-y-auto"]')
+        .scrollTo("bottom");
+      cy.get('[role="dialog"] [data-state="open"]').contains("button", /^i agree$/i).click();
+
+      // Privacy dialog: scroll gate then "I agree"
+      cy.contains("button", /^privacy policy$/i).click();
+      cy.get('[role="dialog"] [data-state="open"]')
+        .find('div[class*="overflow-y-auto"]')
+        .scrollTo("bottom");
+      cy.get('[role="dialog"] [data-state="open"]').contains("button", /^i agree$/i).click();
+
+      // Core data consent checkbox lives inside a <label> wrapper; click the text to toggle.
+      cy.contains(/core data storage/i).click();
+
+      cy.contains("button", /^create my account$/i).should("not.be.disabled").click();
+
+      cy.url({ timeout: 10000 }).should("include", "/dashboard");
+    });
   });
-
-  it("registers a new account and lands on dashboard", () => {
-    cy.visit("/register");
-
-    // Step 1: fill registration form
-    cy.get('input[type="text"]').first().type(TEST_NAME);
-    cy.get('input[type="date"]').type("2000-01-15");
-    cy.get('input[type="email"]').type(TEST_EMAIL);
-    cy.get('input[type="password"]').first().type(TEST_PASSWORD);
-    cy.get('input[type="password"]').last().type(TEST_PASSWORD);
-
-    // Step 2: legal + core data consent (required to enable submit)
-    cy.contains("button", /^continue$/i).click();
-
-    // Terms dialog: scroll gate then "I agree"
-    cy.contains("button", /^terms & conditions$/i).click();
-    cy.get('[role="dialog"] [data-state="open"]')
-      .find("div")
-      .contains(/summary for quick reading/i)
-      .should("be.visible");
-    cy.get('[role="dialog"] [data-state="open"]')
-      .find('div[class*="overflow-y-auto"]')
-      .scrollTo("bottom");
-    cy.get('[role="dialog"] [data-state="open"]').contains("button", /^i agree$/i).click();
-
-    // Privacy dialog: scroll gate then "I agree"
-    cy.contains("button", /^privacy policy$/i).click();
-    cy.get('[role="dialog"] [data-state="open"]')
-      .find('div[class*="overflow-y-auto"]')
-      .scrollTo("bottom");
-    cy.get('[role="dialog"] [data-state="open"]').contains("button", /^i agree$/i).click();
-
-    // Core data consent checkbox lives inside a <label> wrapper; click the text to toggle.
-    cy.contains(/core data storage/i).click();
-
-    cy.contains("button", /^create my account$/i).should("not.be.disabled").click();
-
-    cy.url({ timeout: 10000 }).should("include", "/dashboard");
-  });
-});
+}
 
 describe("Login flow", () => {
   before(() => {

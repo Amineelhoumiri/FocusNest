@@ -559,13 +559,13 @@ const Tasks = () => {
           task_status: string;
           total_subtasks: number;
           completed_subtasks: number;
-          priority?: string;
+          energy_level?: string;
           tags?: string[];
           notes?: string;
         }) => ({
           id: t.task_id,
           name: t.task_name,
-          priority: (t.priority?.toLowerCase() ?? "low") as "high" | "low",
+          priority: (t.energy_level?.toLowerCase() ?? "low") as "high" | "low",
           tags: t.tags ?? [],
           notes: t.notes,
           column: t.task_status === "Ready" ? "todo" : t.task_status.toLowerCase(),
@@ -657,6 +657,7 @@ const Tasks = () => {
           body: JSON.stringify({
             task_name: editTask.name.trim(),
             task_status: backendStatus,
+            energy_level: editTask.priority === "high" ? "High" : "Low",
             notes: editTask.notes || null,
           }),
         });

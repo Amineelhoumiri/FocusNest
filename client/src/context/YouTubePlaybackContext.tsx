@@ -1,3 +1,6 @@
+// Thin context wrapper around useYouTubePlayer so any component in the tree can
+// access the YouTube player state and controls without prop-drilling.
+// The hook owns all player logic; this file just makes it globally available.
 import React, { createContext, useContext } from "react";
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer";
 

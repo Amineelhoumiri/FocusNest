@@ -200,6 +200,13 @@ const endChatSession = async (req, res) => {
     }
 };
 
+/**
+ * Returns the 30 most recent chat sessions for the current user with a decrypted
+ * preview of the first user message — used to populate the chat history sidebar.
+ * Preview is truncated to 100 chars; decryption failures are swallowed (non-critical).
+ *
+ * @route GET /api/chat
+ */
 const getUserSessions = async (req, res) => {
     try {
         const { user_id } = req.user;
@@ -245,6 +252,13 @@ const getUserSessions = async (req, res) => {
     }
 };
 
+/**
+ * Permanently deletes a chat session and all its messages.
+ * Messages are deleted explicitly before the session row to handle DBs
+ * where the FK cascade is not configured.
+ *
+ * @route DELETE /api/chat/:chat_session_id
+ */
 const deleteSession = async (req, res) => {
     try {
         const { user_id } = req.user;
