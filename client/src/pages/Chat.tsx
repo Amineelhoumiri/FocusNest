@@ -92,6 +92,7 @@ interface Message {
   suggestedTask?: { id: string; title: string }
   /** Finch breakdown — user can Accept to create task + subtasks on the Kanban */
   breakdown?: {
+    task_name?: string
     subtasks: BreakdownSubtaskRow[]
     accepted?: boolean
   }
@@ -247,8 +248,8 @@ const Chat = () => {
     if (!msg?.breakdown?.subtasks?.length || msg.breakdown.accepted) return
 
     const priorUser = [...messages.slice(0, messageIndex)].reverse().find((m) => m.role === "user")
-    const parentTitle =
-      (priorUser?.content ?? "").trim().slice(0, 200) || "Task from Finch"
+    const firstLine = (priorUser?.content ?? "").trim().split(/[\n.!?]/)[0].trim().slice(0, 80)
+    const parentTitle = msg.breakdown.task_name?.trim() || firstLine || "Task from Finch"
 
     const subs = msg.breakdown.subtasks.filter((s) => s.subtask_name?.trim())
     const taskEnergy = subs.some((s) => normSubtaskEnergy(s.energy_level) === "High") ? "High" : "Low"
@@ -428,7 +429,7 @@ const Chat = () => {
       let breakdownPayload: Message["breakdown"] = undefined
       if (typeof result === "string") {
         aiText = result
-      } else if (type === "question" || type === "momentum") {
+      } else if (type === "question" || type === "momentum" || type === "general") {
         aiText = result.content ?? ""
       } else if (type === "breakdown") {
         const rawSubs: BreakdownSubtaskRow[] = Array.isArray(result.subtasks) ? result.subtasks : []
@@ -439,7 +440,7 @@ const Chat = () => {
             .join("\n") +
           (result.chat_closing ? "\n\n" + result.chat_closing : "")
         if (subtasks.length > 0) {
-          breakdownPayload = { subtasks, accepted: false }
+          breakdownPayload = { task_name: result.task_name, subtasks, accepted: false }
         }
       } else if (type === "prioritize") {
         aiText = (result.chat_opening ? result.chat_opening + "\n\n" : "") +
@@ -682,7 +683,7 @@ const Chat = () => {
                   >
                     {message.role === "user" ? (
                       <div className="flex justify-end">
-                        <div className="max-w-[72%] px-4 py-3 rounded-[18px_18px_4px_18px]
+                        <div className="ph-no-capture max-w-[72%] px-4 py-3 rounded-[18px_18px_4px_18px]
                                         text-[13px] leading-relaxed
                                         bg-violet-500/18 border border-violet-400/28"
                              style={{ color: isDark ? "rgba(255,255,255,0.90)" : "#1a1830" }}>
@@ -696,7 +697,7 @@ const Chat = () => {
                                         shrink-0 mt-0.5">
                           <FinchBird size={14} variant="white" />
                         </div>
-                        <div className="max-w-[82%] px-4 py-3 rounded-[4px_18px_18px_18px]
+                        <div className="ph-no-capture max-w-[82%] px-4 py-3 rounded-[4px_18px_18px_18px]
                                         text-[13px] leading-relaxed
                                         bg-muted/70 border border-border/50
                                         dark:bg-white/[0.04] dark:border-white/[0.08]

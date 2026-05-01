@@ -1,3 +1,6 @@
+// Provides the user's focus_score and streak to the whole app.
+// addScore uses an optimistic update so the score increments instantly on task/session
+// completion — the server value is synced in the background and reconciled on response.
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 interface FocusScoreContextType {

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { authClient } from "@/lib/auth-client";
+import posthog from "posthog-js";
 
 interface User {
   user_id: string;
@@ -50,8 +51,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fetch("/api/users/me", { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (data) setUser(data);
-          else setUser(null);
+          if (data) {
+            setUser(data);
+            posthog.identify(data.user_id, { email: data.email, name: data.full_name });
+          } else {
+            setUser(null);
+          }
         })
         .catch((err) => {
           console.error("Profile fetch failed", err);
@@ -164,6 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Logout ───────────────────────────────────────────────────
   const logout = async () => {
     await authClient.signOut();
+    posthog.reset();
     setUser(null);
   };
 

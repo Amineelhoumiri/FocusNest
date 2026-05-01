@@ -17,7 +17,12 @@
 #                               (use App Runner automatic deployments on :latest instead)
 #
 # GitHub repository variables:
-#   PUBLIC_APP_URL            — public https origin for Vite build (same as App Runner URL or custom domain)
+#   PUBLIC_APP_URL            — public https origin for Vite `VITE_API_URL` (same as App Runner URL or custom domain)
+#   VITE_POSTHOG_HOST         — e.g. https://eu.i.posthog.com (optional; default in Dockerfile)
+#
+# Optional GitHub repository secrets (client bundle):
+#   VITE_POSTHOG_KEY          — PostHog project key (phc_…)
+#   VITE_SENTRY_DSN           — browser Sentry DSN (omit to disable)
 
 name: Deploy
 
@@ -37,82 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # #region agent log — debug session bca148 (OIDC claims + raw STS; no JWT printed)
-      - name: Debug — OIDC claims + aws sts assume-role-with-web-identity (bca148)
-        id: oidc_debug
-        env:
-          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          set -euo pipefail
-          echo "github.repository=${{ github.repository }}"
-          echo "github.ref=${{ github.ref }}"
-          echo "github.event_name=${{ github.event_name }}"
-          if [ -z "${AWS_ROLE_ARN:-}" ]; then
-            echo "::error::AWS_ROLE_ARN secret is empty"
-            exit 1
-          fi
-          ROLE_SHA=$(printf '%s' "$AWS_ROLE_ARN" | sha256sum | awk '{print $1}')
-          echo "role_arn_sha256=${ROLE_SHA}"
-          URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
-          if [[ "${URL}" == *"?"* ]]; then
-            REQ="${URL}&audience=sts.amazonaws.com"
-          else
-            REQ="${URL}?audience=sts.amazonaws.com"
-          fi
-          RESP=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${REQ}")
-          JWT=$(echo "$RESP" | jq -r '.value')
-          export JWT
-          python3 - <<'PY'
-          import json, base64, os, sys
-          jwt = os.environ.get("JWT", "")
-          parts = jwt.split(".")
-          if len(parts) < 2:
-              print("::error::OIDC response missing JWT")
-              sys.exit(1)
-          pad = "=" * (-len(parts[1]) % 4)
-          raw = parts[1] + pad
-          data = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
-          aud = data.get("aud")
-          out = {
-              "sub": data.get("sub"),
-              "aud": aud,
-              "aud_type": type(aud).__name__,
-              "iss": data.get("iss"),
-              "repository": data.get("repository"),
-              "ref": data.get("ref"),
-          }
-          with open("oidc-debug.json", "w", encoding="utf-8") as f:
-              json.dump(out, f, indent=2)
-          print("OIDC_CLAIMS_JSON=" + json.dumps(out))
-          PY
-          set +e
-          aws sts assume-role-with-web-identity \
-            --role-arn "$AWS_ROLE_ARN" \
-            --role-session-name "bca148-debug" \
-            --web-identity-token "$JWT" \
-            --duration-seconds 900 \
-            --output json > sts-ok.json 2> sts-err.txt
-          echo $? > sts-exit.txt
-          set -e
-          echo "--- sts-exit.txt ---"
-          cat sts-exit.txt
-          echo "--- sts-err.txt (AWS message; no secrets) ---"
-          cat sts-err.txt || true
-
-      - name: Upload OIDC/STS debug artifact (bca148)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: oidc-sts-debug-bca148
-          if-no-files-found: warn
-          path: |
-            oidc-debug.json
-            sts-exit.txt
-            sts-err.txt
-            sts-ok.json
-      # #endregion
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -144,6 +73,9 @@ jobs:
           tags: focusnest:deploy
           build-args: |
             VITE_API_URL=${{ vars.PUBLIC_APP_URL }}
+            VITE_POSTHOG_KEY=${{ secrets.VITE_POSTHOG_KEY }}
+            VITE_POSTHOG_HOST=${{ vars.VITE_POSTHOG_HOST }}
+            VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}
 
       # Gate: block the deploy if the image has fixable HIGH/CRITICAL CVEs
       - name: Trivy — security gate

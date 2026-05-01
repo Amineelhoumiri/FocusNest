@@ -76,7 +76,12 @@ const auth = betterAuth({
      * Default: email/password sign-in requires a verified address (verification email on sign-up).
      * Set REQUIRE_EMAIL_VERIFICATION=false for local dev without a mail provider.
      */
-    requireEmailVerification: process.env.REQUIRE_EMAIL_VERIFICATION !== "false",
+    // Production defaults to requiring verification; local dev defaults to NOT requiring it
+    // so Cypress/local flows work without an email provider. Opt back in locally via REQUIRE_EMAIL_VERIFICATION=true.
+    requireEmailVerification:
+      process.env.NODE_ENV === "production"
+        ? process.env.REQUIRE_EMAIL_VERIFICATION !== "false"
+        : process.env.REQUIRE_EMAIL_VERIFICATION === "true",
     sendResetPassword: async ({ user, url }) => {
       if (process.env.NODE_ENV !== "production") {
         console.info(`[auth] sendResetPassword for ${user?.email || "(no email)"}`);

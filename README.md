@@ -1,27 +1,98 @@
 # FocusNest
-A SaaS-ready Productivity Management System designed for students. Features intelligent resource nesting, distraction blocking, and focus analytics. Built with a dual-role architecture (Admin/Customer) as a 3rd-year Software engineering Dissertation project.
 
-## Quick start (Docker — runs the whole app)
+**A neuro-cognitive productivity platform for students with ADHD** — Kanban task management, AI coaching, 5-minute focus sessions, and personalized soundscapes, packaged as a full-stack SaaS application.
 
-This repo supports running **API + SPA in one container** (recommended for simplest local run).
+[![CI](https://github.com/Amineelhoumiri/FocusNest/actions/workflows/ci.yml/badge.svg)](https://github.com/Amineelhoumiri/FocusNest/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-### Prerequisites
-- **Docker Desktop**
-- A PostgreSQL database (local Postgres or AWS RDS)
+---
 
-### 1) Configure environment
-Create `server/.env` with your database and auth secrets.
+## Table of Contents
 
-Minimum required for the server to start:
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- [Overview](#overview)
+- [Tech Stack](#tech-stack)
+- [Architecture](#architecture)
+- [Quick Start — Docker](#quick-start--docker)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [Testing](#testing)
+- [Project Structure](#project-structure)
+- [CI/CD](#cicd)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
-Common local settings:
-- `DB_SSL=false` (disable SSL for local Postgres)
-- `CLIENT_URL=http://localhost:3000`
-- `ALLOWED_ORIGINS=http://localhost:3000`
+---
 
-### 2) Run
-Build and start:
+## Overview
+
+FocusNest helps students with ADHD stay on task through:
+
+- **Kanban board** — Backlog → Ready → Doing → Done, with a hard limit of one active task at a time
+- **5-minute Micro-Timer** — Short focus intervals with a no-shame reflection flow (distraction / low energy / external)
+- **AI coaching** — GPT-4-powered chat sessions that deconstruct tasks, prioritize backlog, and provide motivational coaching (Finch personas)
+- **Soundscapes** — Spotify OAuth integration and curated YouTube playlists for focus music
+- **Zen Mode** — Full distraction-blocking overlay during active sessions
+- **GDPR compliance** — Right to erasure, data portability, consent audit trail, encrypted PII at rest
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
+| **Backend** | Express 5, Node.js 22 |
+| **Database** | PostgreSQL 16 (AWS RDS) |
+| **Auth** | Better Auth — session cookies, email verification, OAuth (Google, Apple) |
+| **Encryption** | AWS KMS Application Layer Encryption (ALE) — AES-256 for PII at rest |
+| **AI** | OpenAI GPT-4 via `openai` SDK |
+| **Email** | Resend (transactional — verification, password reset) |
+| **Music** | Spotify Web API, YouTube IFrame API |
+| **Observability** | Sentry (server-side) |
+| **Testing** | Jest (server), Vitest (client), Cypress (E2E) |
+| **CI/CD** | GitHub Actions → ECR → AWS App Runner |
+
+---
+
+## Architecture
+
+```
+Browser
+  │
+  ├── React SPA (Vite, port 8080 in dev)
+  │     ├── Better Auth client — session cookies
+  │     ├── CSRF double-submit protection
+  │     └── Relative /api/* calls → proxied to Express
+  │
+  └── Express API (Node 22, port 3000)
+        ├── Middleware: Helmet · CORS · Rate-limit · CSRF · Better Auth session
+        ├── Routes → Controllers → Services
+        ├── encryption.service.js  — AES-256 encrypt/decrypt (AWS KMS)
+        ├── ai.service.js          — OpenAI GPT-4 + token logging
+        ├── mail.service.js        — Resend transactional email
+        └── config/db.js           — pg Pool → PostgreSQL (AWS RDS, SSL)
+```
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system diagram and data-flow details.
+
+
+
+---
+
+## Quick Start — Docker
+
+Runs the full stack (API + SPA) in a single container. Requires only Docker Desktop and a running PostgreSQL instance.
+
+### 1. Configure environment
+
+```bash
+cp server/.env.example server/.env
+# Edit server/.env — set DB_* credentials at minimum
+```
+
+### 2. Start
 
 ```bash
 docker compose up --build
@@ -29,29 +100,34 @@ docker compose up --build
 
 Open `http://localhost:3000`.
 
-### Useful endpoints
-- **Health**: `GET /api/health` (liveness) and `GET /api/ready` (database readiness check).
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/health` | Liveness — no DB |
+| `GET /api/ready` | Readiness — DB connectivity check |
+
+> **Local Postgres**: `docker-compose.yml` also spins up a Postgres 16 container on port 5433 that you can use by setting `DB_PORT=5433` in `server/.env`.
 
 ---
 
-## Local dev (separate client + server)
+## Local Development
+
+Preferred workflow when actively developing — runs client and server as separate hot-reloading processes.
 
 ### Prerequisites
-- Node.js (project uses Node 22 in CI)
-- PostgreSQL database
 
-### 1) Server (port 3000)
+- Node.js 22+
+- PostgreSQL 16+ (local or remote)
+
+### Server (port 3000)
 
 ```bash
 cd server
 npm ci
-# ensure server/.env exists
+# ensure server/.env is configured
 npm run dev
 ```
 
-Server listens on `http://localhost:3000`.
-
-### 2) Client (run on port 8080 for Cypress)
+### Client (port 8080)
 
 ```bash
 cd client
@@ -59,98 +135,207 @@ npm ci
 npm run dev -- --port 8080
 ```
 
-Client dev server: `http://localhost:8080`
+Vite proxies `/api/*` to `http://127.0.0.1:3000` — no CORS configuration needed in dev.
 
 ---
 
-## Tests
+## Environment Variables
 
-### Server unit/integration (Jest)
+Copy `server/.env.example` to `server/.env` and fill in the values. The full reference is in the example file.
+
+### Minimum required (server will not start without these)
+
+| Variable | Description |
+|----------|-------------|
+| `DB_HOST` | PostgreSQL host |
+| `DB_PORT` | PostgreSQL port (default `5432`) |
+| `DB_NAME` | Database name |
+| `DB_USER` | Database user |
+| `DB_PASSWORD` | Database password |
+| `BETTER_AUTH_SECRET` | Random secret for Better Auth session signing |
+| `ENCRYPTION_KEY` | 32-byte hex key for AES-256 at-rest encryption |
+| `CLIENT_URL` | Public frontend origin (e.g. `http://localhost:8080`) |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
+
+### Optional integrations
+
+| Variable | Feature |
+|----------|---------|
+| `OPENAI_API_KEY` | AI coaching (GPT-4) |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Spotify OAuth |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth login |
+| `RESEND_API_KEY` | Transactional email |
+| `SENTRY_DSN` | Error monitoring |
+| `KMS_KEY_ID` | AWS KMS key ARN (production encryption) |
+| `AWS_REGION` | AWS region for KMS |
+| `DB_SSL` | Set `false` to disable TLS for local Postgres |
+
+---
+
+## Testing
+
+### Server — unit + integration (Jest)
 
 ```bash
 cd server
 npm test
 ```
 
-### Client unit (Vitest)
+Tests live in `server/tests/`. A mock Express app and auth helper are in `server/tests/helpers/`.
+
+### Client — unit (Vitest)
 
 ```bash
 cd client
 npm test
 ```
 
-### Cypress E2E
-Cypress expects:
-- Client at `http://localhost:8080`
-- Server at `http://localhost:3000`
+Test files: `client/src/test/`.
 
-In one terminal, run server. In a second terminal, run client on `8080`, then:
+### End-to-end (Cypress)
+
+Requires both server (port 3000) and client (port 8080) running locally.
 
 ```bash
-cd client
-npm run cypress:run
+# Terminal 1
+cd server && npm run dev
+
+# Terminal 2
+cd client && npm run dev -- --port 8080
+
+# Terminal 3
+cd client && npm run cypress:run
+```
+
+Cypress specs: `client/cypress/e2e/`.
+
+---
+
+## Project Structure
+
+```
+FocusNest/
+├── .github/
+│   └── workflows/
+│       ├── ci.yml           # Tests · security scans · Docker build
+│       └── deploy.yml       # ECR push · App Runner deploy
+├── client/                  # React/Vite/TypeScript SPA
+│   ├── cypress/             # E2E tests
+│   │   ├── e2e/
+│   │   └── support/
+│   ├── public/              # Static assets
+│   └── src/
+│       ├── components/
+│       │   ├── layout/      # AppLayout, AppSidebar, Navbar
+│       │   ├── music/       # Spotify + YouTube player components
+│       │   ├── legal/       # Terms & Privacy modals
+│       │   └── ui/          # shadcn/ui component library
+│       ├── context/         # AuthContext · FocusScoreContext · ThemeContext · ZenModeContext
+│       ├── hooks/           # use-mobile · use-toast · useSpotifyPlayer · useYouTubePlayer
+│       ├── lib/             # auth-client · installCsrfFetch · music-source · utils
+│       ├── pages/           # Route-level page components
+│       │   └── admin/
+│       └── test/            # Vitest unit tests
+├── database/
+│   ├── schema/
+│   │   └── focusnest_db.sql # Canonical database schema
+│   ├── queries/             # Reference SQL queries
+│   └── seed/
+│       └── create_test_user.sql
+├── docs/
+│   ├── ARCHITECTURE.md      # System design and data-flow
+│   ├── DEPLOYMENT.md        # AWS App Runner + RDS deployment guide
+│   ├── SECURITY.md          # Security policy and vulnerability reporting
+│   ├── BACKEND_DOCUMENTATION.md
+│   ├── swagger.yaml         # OpenAPI 3.0 spec
+│   └── token_costs.json
+├── server/                  # Express/Node.js API
+│   ├── config/
+│   │   ├── db.js            # PostgreSQL pool
+│   │   └── allowedOrigins.js
+│   ├── controllers/         # Business logic layer
+│   ├── middleware/          # auth · isAdmin · rate-limit · csrf
+│   ├── routes/              # Express router definitions
+│   ├── scripts/
+│   │   ├── migrations/      # SQL schema migrations
+│   │   ├── makeAdmin.js
+│   │   ├── purgeInactiveUsers.js
+│   │   └── seedAiPrompts.js
+│   ├── services/            # ai · encryption · mail · spotify · token
+│   ├── tests/               # Jest tests + helpers
+│   ├── auth.js              # Better Auth configuration
+│   ├── index.js             # Express entry point
+│   └── .env.example         # Environment variable reference
+├── Dockerfile               # Multi-stage: Vite build → Node runtime
+├── docker-compose.yml       # Local dev: app + Postgres 16
+├── DEPLOYMENT.md            # AWS App Runner + RDS deployment guide
+├── CONTRIBUTING.md          # Contribution guidelines
+├── SECURITY.md              # Security policy and vulnerability reporting
+└── LICENSE
 ```
 
 ---
 
-## CI/CD overview
+## CI/CD
 
-- **CI**: `.github/workflows/ci.yml` runs server tests, client build/tests, and security scans (CodeQL/Trivy/etc).
-- **Deploy**: `.github/workflows/deploy.yml` builds and pushes the Docker image to **ECR** and (optionally) triggers an **App Runner** deployment.
+### Continuous Integration (`.github/workflows/ci.yml`)
 
-More details: see `DEPLOYMENT.md`.
+Runs on every push and pull request to `main` and `dev`.
 
-## Deploy to AWS (step by step — App Runner + RDS)
+| Job | What it does |
+|-----|-------------|
+| `dependency-review` | Blocks PRs with HIGH-severity dependency CVEs |
+| `gitleaks` | Scans git history for committed secrets |
+| `hadolint` | Lints the Dockerfile |
+| `codeql` | Static analysis (JavaScript / TypeScript) |
+| `server-test` | `npm ci` → Jest → npm audit |
+| `client-test` | `npm ci` → Vite build → Vitest → ESLint → npm audit |
+| `docker-build` | Multi-stage build → Trivy scan (fails on HIGH/CRITICAL) |
 
-Assume **RDS PostgreSQL** is already running (private), with security group allowing the App Runner **VPC connector** SG on port **5432**.
+### Continuous Deployment (`.github/workflows/deploy.yml`)
 
-### Step 1 — ECR
+Triggered by a version tag (`v*`) or manual workflow dispatch.
 
-1. In **ECR**, create a repository (e.g. `focusnest`).
-2. Note account ID and region for the image URI.
+1. Authenticates to AWS via **GitHub OIDC** (no long-lived keys)
+2. Builds the Docker image with `VITE_API_URL` and optional `VITE_POSTHOG_*` / `VITE_SENTRY_DSN` from GitHub secrets
+3. Runs Trivy as a gate — aborts on HIGH/CRITICAL vulnerabilities
+4. Pushes two tags to ECR: `<sha7>` and `latest`
+5. Triggers an App Runner deployment (if `APPRUNNER_SERVICE_ARN` secret is set)
 
-### Step 2 — VPC connector (reach RDS from App Runner)
+---
 
-1. In **App Runner** → **VPC connectors** → Create.
-2. Pick **subnets** that can route to RDS (same VPC; usually private subnets).
-3. Attach a **security group** for the connector (e.g. `apprunner-connector-sg`).
-4. On the **RDS** security group, allow **inbound 5432** from `apprunner-connector-sg` (not from the public internet).
+## Deployment
 
-### Step 3 — App Runner service
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the complete AWS App Runner + RDS deployment guide, including:
 
-1. **App Runner** → **Create service** → **Container registry** → **Amazon ECR**.
-2. **Image**: your repo; deployment trigger **on every push** to `:latest` *or* leave manual and use GitHub Actions `start-deployment` only.
-3. **Port**: `3000`.
-4. **Health check** (optional but recommended): HTTP path `/api/health`.
-5. Under **Networking**, attach the **VPC connector** from step 2.
-6. **Environment variables** (minimum; align with `server/.env`):
+- ECR repository setup
+- VPC connector and security group configuration
+- App Runner service creation
+- GitHub Actions secrets and IAM permissions
+- OAuth provider configuration for production
 
-   | Variable | Purpose |
-   |----------|---------|
-   | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | RDS ([`server/config/db.js`](server/config/db.js)) |
-   | `CLIENT_URL` | Public `https://…` origin (no trailing slash) |
-   | `ALLOWED_ORIGINS` | Same origin (and any extra frontends), comma-separated |
-   | `DB_SSL` | Omit or `true` for RDS TLS; `false` only if you intentionally disable SSL |
+---
 
-   Add **Secrets Manager** references for passwords and API keys (Google/Apple OAuth, Spotify, AI, Sentry, encryption keys, Better Auth secret, etc.).
+## Contributing
 
-7. **Instance role** (if the app calls AWS APIs e.g. KMS): attach an IAM role with least privilege.
+Fork the repo, create a feature branch off `dev`, and open a pull request against `dev`. Keep commits small and focused. The CI pipeline (tests + lint + security scans) must pass before merge.
 
-8. After create, copy the service **ARN** (for GitHub) and the **default URL** (for `PUBLIC_APP_URL` / OAuth).
+---
 
-### Step 4 — GitHub repository
+## Security
 
-1. **Settings → Secrets and variables → Actions**
-   - Secrets: `AWS_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY`, optional `APPRUNNER_SERVICE_ARN`.
-   - Variables: `PUBLIC_APP_URL` = your live `https://…` (same host users open in the browser).
+Vulnerability reports: see [`docs/SECURITY.md`](docs/SECURITY.md).
 
-2. Update the **IAM OIDC role** used by GitHub: remove ECS permissions; allow **ECR push** and **`apprunner:StartDeployment`**, **`apprunner:DescribeService`**, **`apprunner:ListOperations`** on the App Runner service (or `*` on `apprunner` for a small project).
+Key security properties at a glance:
 
-### Step 5 — OAuth / providers
+- **Encryption at rest** — emails, task names, chat messages, and Spotify tokens are AES-256 encrypted before DB storage (BYTEA), keyed via AWS KMS in production
+- **CSRF** — double-submit cookie pattern (`csrf-csrf`) on all mutating endpoints
+- **Session auth** — HTTP-only secure cookies via Better Auth; no tokens in localStorage
+- **Rate limiting** — 400 req / 15 min per IP on the API; 30 req / min on consent writes
+- **GDPR** — Right to Erasure (`DELETE /api/users/me/nuke`), Right to Portability (`GET /api/users/me/export`), immutable consent audit log
 
-1. In Google Cloud / Apple developer consoles, set redirect and JavaScript origins to your **production** `https://` URL.
+---
 
-### Step 6 — Deploy
+## License
 
-1. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`, or run **Actions → Deploy → Run workflow**.
-2. Confirm **App Runner** shows a successful deployment; hit `/api/health` and `/api/ready` on the public URL.
+[MIT](LICENSE) — Copyright 2026 Amine El Houmiri

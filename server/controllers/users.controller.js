@@ -6,6 +6,7 @@ const pool = require("../config/db");
 const bcrypt = require("bcrypt");
 const { verifyPassword, hashPassword } = require("better-auth/crypto");
 const { decrypt } = require("../services/encryption.service");
+const posthog = require("../posthog");
 
 // ─── Get User ─────────────────────────────────────────────────────────
 
@@ -161,10 +162,22 @@ const updateMe = async (req, res) => {
       values
     );
 
+    if (is_consented_ai !== undefined || is_consented_spotify !== undefined) {
+      posthog.capture({
+        distinctId: String(user_id),
+        event: "consent_updated",
+        properties: {
+          ...(is_consented_ai !== undefined && { is_consented_ai }),
+          ...(is_consented_spotify !== undefined && { is_consented_spotify }),
+        },
+      });
+    }
+
     return res.status(200).json(result.rows[0]);
 
   } catch (err) {
     console.error("updateMe error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",
       message: "Failed to update user.",
@@ -212,6 +225,11 @@ const nukeAccount = async (req, res) => {
       }
     }
 
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "account_deleted",
+    });
+
     // Delete from both tables — CASCADE handles children of each.
     // "user" is quoted because it is a PostgreSQL reserved keyword.
     await pool.query(`DELETE FROM users WHERE user_id = $1`, [user_id]);
@@ -224,6 +242,7 @@ const nukeAccount = async (req, res) => {
 
   } catch (err) {
     console.error("nukeAccount error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",
       message: "Failed to delete account.",
@@ -284,6 +303,15 @@ const exportData = async (req, res) => {
       consent_log: consentLog.rows,
     };
 
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "data_exported",
+      properties: {
+        task_count: tasks.rows.length,
+        session_count: sessions.rows.length,
+      },
+    });
+
     res.setHeader("Content-Disposition", "attachment; filename=my-data.json");
     res.setHeader("Content-Type", "application/json");
 
@@ -291,6 +319,7 @@ const exportData = async (req, res) => {
 
   } catch (err) {
     console.error("exportData error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",
       message: "Failed to export data.",
@@ -352,10 +381,16 @@ const changePassword = async (req, res) => {
       [newHash, user_id]
     );
 
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "password_changed",
+    });
+
     return res.status(200).json({ message: "Password changed successfully." });
 
   } catch (err) {
     console.error("changePassword error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",
       message: "Failed to change password.",
@@ -389,9 +424,19 @@ const addScore = async (req, res) => {
       [points, user_id]
     );
 
+    posthog.capture({
+      distinctId: String(user_id),
+      event: "focus_score_updated",
+      properties: {
+        points_added: points,
+        new_focus_score: result.rows[0].focus_score,
+      },
+    });
+
     return res.status(200).json({ focus_score: result.rows[0].focus_score });
   } catch (err) {
     console.error("addScore error:", err.message);
+    posthog.captureException(err, String(req.user?.user_id));
     return res.status(500).json({
       error: "INTERNAL_SERVER_ERROR",
       message: "Failed to update focus score.",

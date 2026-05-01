@@ -45,6 +45,8 @@ export const TaskDetailsModal = ({
   const [notes, setNotes] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(task.due_date ? new Date(task.due_date) : undefined);
   const [newSubtaskName, setNewSubtaskName] = useState("");
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [editingSubtaskName, setEditingSubtaskName] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiMessage, setAiMessage] = useState<{ opening?: string; closing?: string } | null>(null);
   const [status, setStatus] = useState<string>(
@@ -83,15 +85,42 @@ export const TaskDetailsModal = ({
   const handleUpdateTaskName = async () => {
     if (!taskName.trim()) return;
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_name: taskName }),
       });
+      if (!res.ok) {
+        toast.error("Failed to update task name");
+        return;
+      }
       onTaskUpdated();
     } catch (err) {
       toast.error("Failed to update task name");
+    }
+  };
+
+  const startEditingSubtask = (st: Subtask) => {
+    setEditingSubtaskId(st.subtask_id);
+    setEditingSubtaskName(st.subtask_name);
+  };
+
+  const saveSubtaskName = async (subtaskId: string) => {
+    const name = editingSubtaskName.trim();
+    setEditingSubtaskId(null);
+    if (!name) return;
+    setSubtasks((prev) => prev.map((s) => s.subtask_id === subtaskId ? { ...s, subtask_name: name } : s));
+    try {
+      await fetch(`/api/tasks/${task.id}/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subtask_name: name }),
+      });
+    } catch {
+      toast.error("Failed to rename subtask");
+      fetchSubtasks();
     }
   };
 
@@ -303,6 +332,7 @@ export const TaskDetailsModal = ({
               value={taskName}
               onChange={(e) => setTaskName(e.target.value)}
               onBlur={handleUpdateTaskName}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.currentTarget.blur(); } }}
               className="text-2xl font-semibold text-foreground bg-transparent outline-none w-[90%] border-b border-transparent hover:border-border/30 focus:border-primary/40 transition-colors"
             />
 
@@ -371,10 +401,30 @@ export const TaskDetailsModal = ({
                       className="mt-1 border-border/40 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=checked]:border-primary"
                     />
                   )}
-                  <span className={`text-sm flex-1 pt-0.5 ${st.is_approved === false ? "text-ai-purple/70 italic" : st.subtask_status === "Done" ? "text-muted-foreground/40 line-through" : "text-foreground/75"}`}>
-                    {st.subtask_name}
-                    {st.is_approved === false && <span className="ml-2 text-[10px] text-violet-400/60 not-italic">AI · tap ✓ to approve</span>}
-                  </span>
+                  {editingSubtaskId === st.subtask_id ? (
+                    <input
+                      autoFocus
+                      value={editingSubtaskName}
+                      onChange={(e) => setEditingSubtaskName(e.target.value)}
+                      onBlur={() => saveSubtaskName(st.subtask_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") { setEditingSubtaskId(null); }
+                      }}
+                      className="flex-1 text-sm bg-transparent outline-none border-b border-primary/50 text-foreground/90 py-0.5"
+                    />
+                  ) : (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => st.is_approved !== false && startEditingSubtask(st)}
+                      onKeyDown={(e) => e.key === "Enter" && st.is_approved !== false && startEditingSubtask(st)}
+                      className={`text-sm flex-1 pt-0.5 ${st.is_approved === false ? "text-ai-purple/70 italic" : st.subtask_status === "Done" ? "text-muted-foreground/40 line-through" : "text-foreground/75 hover:text-foreground cursor-text"}`}
+                    >
+                      {st.subtask_name}
+                      {st.is_approved === false && <span className="ml-2 text-[10px] text-violet-400/60 not-italic">AI · tap ✓ to approve</span>}
+                    </span>
+                  )}
                   <button
                     onClick={() => deleteSubtask(st.subtask_id)}
                     className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground/30 hover:text-red-400 transition-all rounded shrink-0"
