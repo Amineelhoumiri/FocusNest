@@ -1,5 +1,6 @@
 const pool = require("../config/db");
 const { encrypt, decrypt } = require("../services/encryption.service");
+const posthog = require("../posthog");
 
 // Helper to validate UUID format
 const isValidUUID = (uuid) => {
@@ -25,9 +26,18 @@ const startChatSession = async (req, res) => {
             [user_id]
         );
 
-        return res.status(201).json(result.rows[0]);
+        const session = result.rows[0];
+
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "chat_session_started",
+            properties: { chat_session_id: session.chat_session_id },
+        });
+
+        return res.status(201).json(session);
     } catch (err) {
         console.error("startChatSession error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to start chat session" });
     }
 };
@@ -61,7 +71,7 @@ const getChatHistory = async (req, res) => {
 
         // Get messages
         const result = await pool.query(
-            `SELECT * FROM chat_messages WHERE chat_session_id = $1 ORDER BY chat_message_id ASC`,
+            `SELECT * FROM chat_messages WHERE chat_session_id = $1 ORDER BY created_at ASC`,
             [chat_session_id]
         );
 
@@ -130,9 +140,20 @@ const sendMessage = async (req, res) => {
             [chat_session_id]
         );
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "chat_message_sent",
+            properties: {
+                chat_session_id: chat_session_id,
+                role: role,
+                token_count: token_count,
+            },
+        });
+
         return res.status(201).json(newMessage);
     } catch (err) {
         console.error("sendMessage error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to send message" });
     }
 };
@@ -165,29 +186,107 @@ const endChatSession = async (req, res) => {
             return res.status(404).json({ error: "NOT_FOUND", message: "Chat session not found or already ended." });
         }
 
+        posthog.capture({
+            distinctId: String(user_id),
+            event: "chat_session_ended",
+            properties: { chat_session_id: chat_session_id },
+        });
+
         return res.status(200).json(result.rows[0]);
     } catch (err) {
         console.error("endChatSession error:", err.message);
+        posthog.captureException(err, String(req.user?.user_id));
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR", message: "Failed to end chat session" });
     }
 };
 
+/**
+ * Returns the 30 most recent chat sessions for the current user with a decrypted
+ * preview of the first user message — used to populate the chat history sidebar.
+ * Preview is truncated to 100 chars; decryption failures are swallowed (non-critical).
+ *
+ * @route GET /api/chat
+ */
 const getUserSessions = async (req, res) => {
     try {
         const { user_id } = req.user;
         const result = await pool.query(
-            `SELECT chat_session_id, created_at, updated_at, ended_at
-             FROM chat_sessions
-             WHERE user_id = $1
-             ORDER BY updated_at DESC
+            `SELECT
+               cs.chat_session_id, cs.created_at, cs.updated_at, cs.ended_at,
+               (
+                 SELECT cm.content
+                 FROM chat_messages cm
+                 WHERE cm.chat_session_id = cs.chat_session_id
+                   AND cm.role = 'user'
+                 ORDER BY cm.created_at ASC
+                 LIMIT 1
+               ) AS first_message
+             FROM chat_sessions cs
+             WHERE cs.user_id = $1
+             ORDER BY cs.updated_at DESC
              LIMIT 30`,
             [user_id]
         );
-        return res.status(200).json(result.rows);
+
+        const sessions = await Promise.all(result.rows.map(async (row) => {
+            let preview = null;
+            if (row.first_message) {
+                try {
+                    const text = await decrypt(row.first_message.toString());
+                    preview = text.slice(0, 100);
+                } catch { /* ignore — preview is non-critical */ }
+            }
+            return {
+                chat_session_id: row.chat_session_id,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+                ended_at: row.ended_at,
+                preview,
+            };
+        }));
+
+        return res.status(200).json(sessions);
     } catch (err) {
         console.error("getUserSessions error:", err.message);
         return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
     }
 };
 
-module.exports = { startChatSession, getChatHistory, sendMessage, endChatSession, getUserSessions };
+/**
+ * Permanently deletes a chat session and all its messages.
+ * Messages are deleted explicitly before the session row to handle DBs
+ * where the FK cascade is not configured.
+ *
+ * @route DELETE /api/chat/:chat_session_id
+ */
+const deleteSession = async (req, res) => {
+    try {
+        const { user_id } = req.user;
+        const { chat_session_id } = req.params;
+
+        if (!isValidUUID(chat_session_id)) {
+            return res.status(400).json({ error: "VALIDATION_ERROR", message: "Invalid chat_session_id format." });
+        }
+
+        // Delete messages first, then the session (handles DBs without CASCADE).
+        await pool.query(
+            `DELETE FROM chat_messages WHERE chat_session_id = $1`,
+            [chat_session_id]
+        );
+        const result = await pool.query(
+            `DELETE FROM chat_sessions WHERE chat_session_id = $1 AND user_id = $2 RETURNING chat_session_id`,
+            [chat_session_id, user_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "NOT_FOUND", message: "Chat session not found." });
+        }
+
+        return res.status(200).json({ deleted: true });
+    } catch (err) {
+        console.error("deleteSession error:", err.message);
+        return res.status(500).json({ error: "INTERNAL_SERVER_ERROR" });
+    }
+};
+
+module.exports = { startChatSession, getChatHistory, sendMessage, endChatSession, getUserSessions, deleteSession };

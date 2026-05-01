@@ -1,88 +1,378 @@
-# FocusNest Backend API Documentation
+# FocusNest — Backend Documentation
 
-Welcome to the FocusNest backend documentation! This robust backend is engineered with Express.js and PostgreSQL, focusing aggressively on data security, high stability, and specialised logic for productivity and focus-tracking.
+The backend is an **Express 5 / Node.js 22** API that exposes a REST interface consumed by the React SPA. It follows a strict three-layer architecture (Routes → Controllers → Services) on top of a PostgreSQL database.
+
+---
 
 ## Table of Contents
 
-1. [Architecture Overview](#architecture-overview)
-2. [Security & Encryption](#security--encryption)
-3. [Modules & Controllers](#modules--controllers)
-    - [Authentication (`auth.controller.js`)](#authentication)
-    - [User Management (`users.controller.js`)](#user-management)
-    - [Tasks & Subtasks](#tasks--subtasks)
-    - [Focus Sessions (`sessions.controller.js`)](#focus-sessions)
-    - [AI Chat Assistants (`chat.controller.js`)](#ai-chat)
-    - [GDPR & Consent Logging (`consent.controller.js`)](#gdpr--consent-logging)
-    - [Admin Operations (`admin.controller.js`)](#admin)
+1. [Architecture](#architecture)
+2. [Middleware Stack](#middleware-stack)
+3. [Authentication & Sessions](#authentication--sessions)
+4. [Encryption](#encryption)
+5. [API Modules](#api-modules)
+   - [Auth](#auth)
+   - [Users](#users)
+   - [Tasks](#tasks)
+   - [Subtasks](#subtasks)
+   - [Focus Sessions](#focus-sessions)
+   - [AI Chat](#ai-chat)
+   - [AI Prompts](#ai-prompts)
+   - [Spotify / Music](#spotify--music)
+   - [GDPR & Consent](#gdpr--consent)
+   - [Admin](#admin)
+   - [Uploads](#uploads)
+6. [Services](#services)
+7. [Database](#database)
+8. [Scripts](#scripts)
+9. [Testing](#testing)
+10. [Health Endpoints](#health-endpoints)
 
 ---
 
-## Architecture Overview
+## Architecture
 
-The backend uses a standard RESTful architecture wrapped with Express middleware.
+```
+server/
+├── index.js              — Express entry point; mounts middleware and routes
+├── auth.js               — Better Auth configuration
+├── instrument.js         — Sentry SDK initialization
+├── startup-check.js      — DB connectivity validation at boot
+├── dev-env-defaults.js   — Non-secret defaults for local development
+│
+├── config/
+│   ├── db.js             — pg Pool (PostgreSQL, SSL-aware)
+│   └── allowedOrigins.js — CORS allowed-origins resolver
+│
+├── middleware/
+│   ├── auth.js           — Better Auth session validation
+│   ├── isAdmin.js        — is_admin flag gate
+│   ├── api-rate-limit.js — express-rate-limit (400/15 min; 30/min for consent)
+│   └── csrf-config.js    — csrf-csrf double-submit cookie
+│
+├── routes/               — Express Router files (one per domain)
+├── controllers/          — Business logic (one per domain)
+└── services/             — Shared utilities (AI, encryption, mail, Spotify, tokens)
+```
 
-- **Routing Layer**: `server/routes/...`
-- **Business Logic Layer**: `server/controllers/...`
-- **Data Access Layer**: Postgres connection mapping via `server/config/db.js`
-- **Services Layer**: JWT handling & AES encryption located in `server/services/...`
+**Request lifecycle:**
+
+```
+Request → Helmet → CORS → Cookie-parser → Rate-limit → CSRF
+        → Route match
+        → auth middleware (session validation)
+        → isAdmin (admin-only routes)
+        → Controller → Service → PostgreSQL
+        → Response
+```
 
 ---
 
-## Security & Encryption
+## Middleware Stack
 
-A core pillar of FocusNest is data privacy. Sensitive Personally Identifiable Information (PII) like `email`, as well as potentially sensitive planning elements like `task_name`, `subtask_name`, and AI `chat_messages`, are **all encrypted at rest** in PostgreSQL as `BYTEA` using AES-256 standard encryption via our internal `encryption.service.js`.
-
-- Our controllers automatically `decrypt()` names specifically right before turning data objects back into JSON for the frontend requesting them. 
-- All standard endpoints are guarded by JWT (JSON Web Token) based `auth` middleware, with specific high-level routes guarded by an additional `isAdmin` middleware gate. Tokens are stored securely as HTTP-only secure cookies protecting against standard cross-site scripting (XSS) attacks.
+| Middleware | Purpose |
+|-----------|---------|
+| `helmet` | Security headers (CSP disabled for OAuth/Vite compatibility) |
+| `cors` | Origin whitelist from `ALLOWED_ORIGINS` + `CLIENT_URL` env vars |
+| `cookie-parser` | Parses HTTP-only session and CSRF cookies |
+| `api-rate-limit` | 400 requests per IP per 15 minutes (global); 30/min on consent writes |
+| `csrf-config` | Double-submit CSRF tokens; skips `/api/auth/*` (except `/api/auth/consent`) |
+| `auth` (Better Auth) | Validates session cookie; injects `req.user` |
+| `isAdmin` | Verifies `req.user.is_admin === true`; returns 403 otherwise |
 
 ---
 
-## Modules & Controllers
+## Authentication & Sessions
 
-The backend logic is modularised across specialised controllers found inside `server/controllers`. Every single function inside these files features comprehensive JSDoc annotations to aid future development via intellisense in your IDE.
+Authentication is handled by **[Better Auth](https://better-auth.com/)** (`server/auth.js`).
 
-### Authentication
-**File**: `auth.controller.js`
-Handles the onboarding pipelines and token generation.
-- **`POST /api/auth/register`**: Validates required elements (like `date_of_birth`), hashes passwords using bcrypt, securely encrypts the email as `BYTEA` so plaintext emails never touch the Postgres Tables, generates tokens, and sets HTTP-only cookies.
-- **`POST /api/auth/login`**: Dynamically loops to decrypt emails, matching inputs against credentials returning active status, and establishing user cookies.
-- **`POST /api/auth/refresh`**: Silent background capability to verify `refresh_token` HTTP boundaries and return fresh JWT access tokens avoiding session disruptions.
-- **`POST /api/auth/logout`**: Tears out the database `is_revoked` token flag and clears frontend cookies.
+- Sessions are stored as HTTP-only, `Secure`, `SameSite=Lax` cookies — no tokens in localStorage or query strings
+- Email/password registration with optional email verification (`REQUIRE_EMAIL_VERIFICATION`)
+- OAuth providers: **Google** and **Apple** (configured via `GOOGLE_CLIENT_ID` / `APPLE_*` env vars)
+- Password reset flow via Resend transactional email
+- Better Auth manages its own schema tables (`user`, `session`, `account`, `verification`) alongside the application tables
 
-### User Management
-**File**: `users.controller.js`
-Centred heavily on GDPR compliance capabilities for the authorised user.
-- **`GET /api/users/me`**: Fetches the authenticated user profile, dynamically ripping and decrypting their associated email address from the adjacent `account` SQL table.  
-- **`PATCH /api/users/me`**: Smart partial updates using a dynamic `$index` array algorithm allowing metadata patching.
-- **`GET /api/users/me/export`**: Resolves GDPR Right To Portability by scraping their metadata across all related tables (tasks, chats, sessions, logs) formatting them into single, downloadable JSON document objects.  
-- **`DELETE /api/users/me/nuke`**: Aggressively secure CASCADE erasure tearing down all components inside the SQL tables after verifying a final password prompt.
+**Session validation** (`server/middleware/auth.js`):
 
-### Tasks & Subtasks
-**Files**: `tasks.controller.js`, `subtasks.controller.js`
-FocusNest follows a strict Kanban implementation for flow state optimisation. 
-- You may only ever have **one** singular task flagged as 'Doing' at a given time natively preventing multitasking. This restriction scales down directly to `subtasks` under active parent tasks. 
-- When an AI (or user) creates subtasks, they land with `is_approved = FALSE`. The user must manually `PATCH` them with true to promote them conceptually onto their active focus board. 
+```js
+// Injects req.user on every authenticated route
+const session = await auth.api.getSession({ headers: req.headers });
+if (!session) return res.status(401).json({ error: 'Unauthorized' });
+req.user = session.user;
+```
+
+---
+
+## Encryption
+
+All PII and sensitive user content is **encrypted at rest** before being written to PostgreSQL, stored as `BYTEA` columns. Decryption happens in the controller layer immediately before serializing the response.
+
+**Encrypted fields:**
+
+| Table | Field | Why |
+|-------|-------|-----|
+| `account` | `encrypted_email` | PII — email address |
+| `tasks` | `task_name` | Sensitive personal data |
+| `subtasks` | `subtask_name` | Sensitive personal data |
+| `session` | `reflection_content` | Potentially sensitive mental health data |
+| `chat_messages` | `content` | Private AI conversation content |
+| `spotify_tokens` | `access_token`, `refresh_token` | OAuth credentials |
+
+**Encryption service** (`server/services/encryption.service.js`):
+
+- **Production**: AWS KMS — data key generated per encrypt call; key ID from `KMS_KEY_ID` env var
+- **Development**: AES-256-GCM with a local `ENCRYPTION_KEY` (32-byte hex)
+- API: `encrypt(plaintext: string) → Buffer` / `decrypt(ciphertext: Buffer) → string`
+
+---
+
+## API Modules
+
+Full OpenAPI 3.0 spec: [`docs/swagger.yaml`](swagger.yaml)
+
+### Auth
+
+**File:** `routes/auth.routes.js` → `controllers/auth.controller.js`
+
+Better Auth handles the auth flow natively. The routes file mounts the Better Auth handler at `/api/auth/*`. Custom application-level logic (e.g. creating the `users` row after registration) is handled via Better Auth hooks.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/sign-up/email` | Register with email + password |
+| `POST` | `/api/auth/sign-in/email` | Login; sets session cookie |
+| `POST` | `/api/auth/sign-out` | Destroys session |
+| `POST` | `/api/auth/forget-password` | Sends password reset email |
+| `POST` | `/api/auth/reset-password` | Resets password with token |
+| `GET` | `/api/auth/verify-email` | Verifies email address |
+| `GET` | `/api/auth/callback/:provider` | OAuth callback (Google, Apple) |
+
+### Users
+
+**File:** `routes/users.routes.js` → `controllers/users.controller.js`
+
+All routes require an active session.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/users/me` | Returns decrypted user profile (email from `account` table) |
+| `PATCH` | `/api/users/me` | Partial update via dynamic `$n` parameter array |
+| `POST` | `/api/users/me/password` | Change password (requires current password) |
+| `GET` | `/api/users/me/export` | GDPR data export — tasks, sessions, chat, consent log as JSON |
+| `DELETE` | `/api/users/me/nuke` | Full account deletion with CASCADE; requires password confirmation |
+
+### Tasks
+
+**File:** `routes/tasks.routes.js` → `controllers/tasks.controller.js`
+
+Implements Kanban columns: `Backlog` → `Ready` → `Doing` → `Done`.
+
+**Business rule (FR-C-02):** Only **one** task may be in `Doing` at a time. This is enforced at the controller level — moving a task to `Doing` checks for an existing active task and returns `409` if one exists.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/tasks` | List all tasks for the authenticated user (decrypted names) |
+| `POST` | `/api/tasks` | Create a task; encrypts `task_name` before insert |
+| `GET` | `/api/tasks/:id` | Single task (decrypted) |
+| `PATCH` | `/api/tasks/:id` | Update status, energy level, or other fields |
+| `DELETE` | `/api/tasks/:id` | Delete task (cascades to subtasks and sessions) |
+
+### Subtasks
+
+**File:** `routes/subtasks.routes.js` → `controllers/subtasks.controller.js`
+
+Subtasks support an AI approval flow: AI-generated subtasks land with `is_approved = FALSE` and must be explicitly approved by the user.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/tasks/:task_id/subtasks` | List subtasks (decrypted) |
+| `POST` | `/api/tasks/:task_id/subtasks` | Create subtask; encrypts name |
+| `PATCH` | `/api/tasks/:task_id/subtasks/:id` | Update status or approve (`is_approved = TRUE`) |
+| `DELETE` | `/api/tasks/:task_id/subtasks/:id` | Delete subtask |
 
 ### Focus Sessions
-**File**: `sessions.controller.js`
-Timer backend tracking intervals.  
-- **`POST /api/sessions`**: Bootstraps an `is_active = TRUE` time log for a specific `task_id`. 
-- **`POST /api/sessions/:session_id/switch`**: Highly specialised endpoint allowing a user to change the overarching `task_id` associated with a timer without actually stopping their background clock. 
-- **`PATCH /api/sessions/:session_id`**: Flips the current session to inactive, locking the `CURRENT_TIMESTAMP` as its end boundary while injecting post-focus reflection datasets (like perceived outcome or distraction levels).
+
+**File:** `routes/sessions.routes.js` → `controllers/sessions.controller.js`
+
+Manages the 5-minute Micro-Timer lifecycle.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/sessions` | Session history for the authenticated user |
+| `POST` | `/api/sessions` | Start a session — sets `is_active = TRUE`, records `started_at` |
+| `PATCH` | `/api/sessions/:id` | End session — records `ended_at`, stores encrypted reflection |
+| `POST` | `/api/sessions/:id/switch` | "I'm Stuck" — reassigns `task_id` without stopping the timer |
+
+**Reflection types (FR-C-08):** `distraction` · `low_energy` · `external`
 
 ### AI Chat
-**File**: `chat.controller.js`
-A stateless pipeline for LLM implementations ensuring conversational threading.
-- Initialises threads (`POST /api/chat`) and allows message insertion representing `assistant`, `system`, or `user` roles tracking their token densities.
-- Fetches full chat history using an ascendant SQL order, returning perfectly formatted contextual context for an LLM implementation pipeline to absorb and utilise dynamically.
 
-### GDPR & Consent Logging
-**File**: `consent.controller.js`
-Handles explicit Opt-In behaviours specifically for 3rd party integrations (OpenAI or Spotify features).
-- **`PATCH /api/consent`**: Secured underneath a Postgres Database Transaction block (`BEGIN`/`COMMIT`/`ROLLBACK`). The system automatically captures the request's originating `ip_address` alongside standard updates, inserting a permanent snapshot directly into the immutable `consent_audit_log` resolving explicit privacy pipeline validations required under strict European GDPR tracking laws. 
+**File:** `routes/chat.routes.js` → `controllers/chat.controller.js`
 
-### Admin Operations
-**File**: `admin.controller.js`
-Backend infrastructure solely accessed by the `is_admin = TRUE` scope.
-- Dynamically retrieves user tokens/billing constraints logged over LLM usage (while aggressively masking `prompt` and `content` fields to obscure data preventing prying from internal bad actors).
-- Interfaces with the `system_prompts` database, acting as the live command and control centre for altering underlying model characteristics without hardcoding prompts inside standard app builds.
+Stateful conversation threading using `chat_sessions` and `chat_messages` tables. Message content is encrypted at rest.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/chat` | List chat sessions for the user |
+| `POST` | `/api/chat` | Create a new chat session or send a message to an existing one |
+| `GET` | `/api/chat/:session_id` | Full message history (ascending order) for LLM context injection |
+| `DELETE` | `/api/chat/:session_id` | Delete a chat session and all messages |
+
+### AI Prompts
+
+**File:** `routes/ai.routes.js` → `services/ai.service.js`
+
+Invokes OpenAI GPT-4 using system prompts stored in the `system_prompts` table (managed by Admin). Token usage is logged to `openai_usage`.
+
+| Persona | Trigger |
+|---------|---------|
+| `deconstructor` | Break a task into subtasks |
+| `prioritizer` | Rank the backlog by energy level and urgency |
+| `conversational_coach` | General focus coaching chat |
+| `momentum_builder` | Re-engagement after a distraction |
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/ai/deconstruct` | AI subtask generation for a task |
+| `POST` | `/api/ai/prioritize` | Backlog prioritization |
+| `POST` | `/api/ai/chat` | Coaching conversation (uses `conversational_coach` persona) |
+
+### Spotify / Music
+
+**Files:** `routes/spotify.routes.js` / `routes/music.routes.js` → `controllers/spotify.controller.js` / `services/spotify.service.js`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/spotify/auth-url` | Returns Spotify OAuth authorization URL |
+| `GET` | `/api/spotify/callback` | Exchanges code for tokens; encrypts and stores them |
+| `POST` | `/api/spotify/refresh` | Refreshes the Spotify access token |
+| `DELETE` | `/api/spotify/disconnect` | Revokes stored tokens |
+| `GET` | `/api/music/playlists` | Returns curated playlists (Spotify + YouTube) |
+
+### GDPR & Consent
+
+**File:** `routes/consent.routes.js` → `controllers/consent.controller.js`
+
+Manages opt-in consent for data processing features (core, AI, Spotify). Every change is appended to an **immutable audit log** within a single DB transaction.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/consent` | Current consent flags for the user |
+| `PATCH` | `/api/consent` | Update flags; writes IP + timestamp to `consent_audit_log` |
+
+The `PATCH` handler runs inside a `BEGIN` / `COMMIT` / `ROLLBACK` transaction block — if the audit log insert fails, the consent update is rolled back.
+
+Rate-limited separately: **30 requests / minute** per IP.
+
+### Admin
+
+**File:** `routes/admin.routes.js` → `controllers/admin.controller.js`
+
+Requires `is_admin = TRUE` (enforced by `isAdmin` middleware). Provides observability and system-prompt management without exposing user content.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/usage` | OpenAI token usage log (prompt/content fields masked) |
+| `GET` | `/api/admin/prompts` | List all system prompts |
+| `PATCH` | `/api/admin/prompts/:id` | Update a system prompt body |
+| `GET` | `/api/admin/users` | User list (no PII — aggregated stats only) |
+
+### Uploads
+
+**File:** `routes/upload.routes.js`
+
+Handles PDF uploads (via `multer`) for AI-assisted task planning from documents.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/upload/pdf` | Upload a PDF; parsed with `pdf-parse`; content passed to AI |
+
+---
+
+## Services
+
+| File | Responsibility |
+|------|---------------|
+| `services/ai.service.js` | OpenAI API calls; selects system prompt by persona name; logs token usage to `openai_usage` |
+| `services/encryption.service.js` | AES-256-GCM encrypt/decrypt; uses AWS KMS in prod, local key in dev |
+| `services/mail.service.js` | Resend integration — sends verification and password reset emails |
+| `services/spotify.service.js` | Spotify Web API wrapper — playlist fetch, token exchange, refresh |
+| `services/token.service.js` | JWT utilities (used for short-lived internal tokens) |
+
+---
+
+## Database
+
+Schema: [`database/schema/focusnest_db.sql`](../database/schema/focusnest_db.sql)
+
+Migrations: `server/scripts/migrations/` — applied manually or via a deployment script.
+
+| Table | Description |
+|-------|-------------|
+| `users` | Core user profile (full_name, DOB, address, is_admin, consent flags) |
+| `account` | Better Auth accounts; stores `encrypted_email` as BYTEA |
+| `session` (Better Auth) | Active user sessions |
+| `verification` | Email verification + password reset tokens |
+| `tasks` | Kanban tasks; `task_name` stored as encrypted BYTEA |
+| `subtasks` | Child tasks; `subtask_name` as encrypted BYTEA; `is_approved` flag |
+| `focus_sessions` | Timer records; `reflection_content` as encrypted BYTEA |
+| `chat_sessions` | AI conversation thread headers |
+| `chat_messages` | Individual messages; `content` as encrypted BYTEA; `role`, token counts |
+| `consent_audit_log` | Immutable GDPR audit trail (IP, timestamp, consent flags snapshot) |
+| `openai_usage` | Per-request token logging (model, prompt_tokens, completion_tokens, cost) |
+| `system_prompts` | Editable AI persona prompts (name, body, is_active) |
+| `spotify_tokens` | Encrypted OAuth tokens per user |
+| `curated_playlists` | Spotify + YouTube playlist metadata |
+
+**Connection:** `server/config/db.js` creates a `pg.Pool`. SSL is enabled by default (required for AWS RDS); set `DB_SSL=false` for local dev.
+
+---
+
+## Scripts
+
+Run from the `server/` directory with `node scripts/<file>`.
+
+| Script | Usage |
+|--------|-------|
+| `scripts/seedAiPrompts.js` | Inserts the four default Finch AI personas into `system_prompts` |
+| `scripts/makeAdmin.js` | Promotes a user to `is_admin = TRUE` by email |
+| `scripts/purgeInactiveUsers.js` | GDPR: hard-deletes users inactive for >180 days (also runs via `npm run purge:inactive`) |
+| `scripts/migrations/*.sql` | Schema migrations — apply with `psql -f <file>` |
+
+---
+
+## Testing
+
+Tests use **Jest** with a dedicated test Express app (`tests/helpers/app.js`) and a mock auth helper (`tests/helpers/mockAuth.js`) that bypasses the Better Auth session check.
+
+```bash
+cd server
+npm test          # run all tests once
+npm run test:watch  # watch mode
+```
+
+**Coverage areas:**
+
+| File | Routes tested |
+|------|--------------|
+| `tests/auth.test.js` | Register, login |
+| `tests/users.test.js` | Profile, export, nuke |
+| `tests/tasks.test.js` | CRUD, Kanban constraint |
+| `tests/subtasks.test.js` | CRUD, approval flow |
+| `tests/sessions.test.js` | Start, end, switch |
+| `tests/chat.test.js` | Threads, messages |
+| `tests/ai.test.js` | Deconstruct, prioritize |
+| `tests/consent.test.js` | Flags, audit log |
+| `tests/spotify.test.js` | OAuth flow, token refresh |
+| `tests/admin.test.js` | Usage log, prompts |
+| `tests/allowedOrigins.test.js` | CORS config unit test |
+
+---
+
+## Health Endpoints
+
+These are unauthenticated and used by App Runner and load balancers.
+
+| Path | Checks |
+|------|--------|
+| `GET /api/health` | Returns `200 OK` — liveness only, no DB access |
+| `GET /api/ready` | Runs `SELECT 1` against the DB pool; returns `503` if unavailable |

@@ -22,7 +22,10 @@ const AppLayout = () => {
     setSidebarOpen(false);
   }, [location.pathname]);
 
-  if (isLoading) {
+  // Only block rendering on the very first load — not on background session refreshes.
+  // If user is already known, keep the layout mounted so inputs and timer state survive
+  // tab switches (BetterAuth re-validates the session on tab focus, briefly setting isLoading).
+  if (isLoading && !user) {
     return (
       <div
         className="flex h-dvh items-center justify-center bg-background text-muted-foreground text-sm"

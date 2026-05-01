@@ -6,10 +6,18 @@ client/dist
 **/.env
 **/.env.*
 !.env.example
+# Markdown omitted from build context to slim the image; swagger.yaml + non-.md under docs/ still copy.
 *.md
 .claude
+.cursor
 .vscode
+.idea
+**/.DS_Store
+.DS_Store
 coverage
+client/cypress
+**/cypress/screenshots
+**/cypress/videos
 **/*.test.js
 **/*.test.ts
 **/*.test.tsx

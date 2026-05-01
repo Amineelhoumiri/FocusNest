@@ -1,6 +1,9 @@
 {
   "name": "focusnest-server",
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22"
+  },
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -28,6 +31,7 @@
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.18.0",
+    "posthog-node": "^5.29.5",
     "spotify-web-api-node": "^5.0.2",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^13.0.0",

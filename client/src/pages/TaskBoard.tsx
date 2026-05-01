@@ -452,7 +452,7 @@ const TaskBoard = () => {
   const fetchSubtasks = useCallback(async () => {
     if (!taskId) return;
     try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks`);
+      const res = await fetch(`/api/tasks/${taskId}/subtasks`, { credentials: "include" });
       if (res.ok) setSubtasks(await res.json());
     } catch {
       toast.error("Failed to load subtasks");
@@ -462,7 +462,7 @@ const TaskBoard = () => {
   const fetchTask = useCallback(async () => {
     if (!taskId) return;
     try {
-      const res = await fetch(`/api/tasks/${taskId}`);
+      const res = await fetch(`/api/tasks/${taskId}`, { credentials: "include" });
       if (!res.ok) { navigate("/tasks"); return; }
       const t = await res.json();
       setTask({
@@ -491,6 +491,7 @@ const TaskBoard = () => {
       fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ task_status: "Done" }),
       }).catch(() => {});
       setTask((prev) => (prev ? { ...prev, column: "done" } : prev));
@@ -553,6 +554,7 @@ const TaskBoard = () => {
       await fetch(`/api/tasks/${taskId}/subtasks/${draggableId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ subtask_status: targetCol.backendValue }),
       });
     } catch {
@@ -588,6 +590,7 @@ const TaskBoard = () => {
       await fetch(`/api/tasks/${taskId}/subtasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           subtask_name: newSubtask.name.trim(),
           energy_level: newSubtask.energy,
@@ -612,6 +615,7 @@ const TaskBoard = () => {
       await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ is_approved: true }),
       });
     } catch {
@@ -623,7 +627,7 @@ const TaskBoard = () => {
   const handleDelete = async (subtaskId: string) => {
     setSubtasks((prev) => prev.filter((s) => s.subtask_id !== subtaskId));
     try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, { method: "DELETE" });
+      const res = await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, { method: "DELETE", credentials: "include" });
       if (!res.ok) throw new Error();
     } catch {
       toast.error("Failed to delete subtask");
@@ -633,7 +637,7 @@ const TaskBoard = () => {
 
   const handleDeleteTask = async () => {
     try {
-      await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      await fetch(`/api/tasks/${taskId}`, { method: "DELETE", credentials: "include" });
       toast.success("Task deleted");
       navigate("/tasks");
     } catch {
@@ -671,6 +675,7 @@ const TaskBoard = () => {
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           task_name: editName.trim(),
           task_status: backendStatus,

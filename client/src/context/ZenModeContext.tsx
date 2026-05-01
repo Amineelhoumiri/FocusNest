@@ -1,3 +1,6 @@
+// Zen Mode hides all non-essential UI chrome (sidebar, navbar) during a focus session.
+// State is persisted to localStorage under "focusnest_settings" so the preference
+// survives page reloads without a server round-trip.
 import { createContext, useContext, useState } from "react";
 
 const STORAGE_KEY = "focusnest_settings";

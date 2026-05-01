@@ -187,7 +187,7 @@ const TaskCard = ({
         }}
       >
         {/* Title */}
-        <p style={{
+        <p className="ph-no-capture" style={{
           fontSize: 13, fontWeight: 500, lineHeight: "1.4", marginBottom: 10,
           textDecoration: isDone ? "line-through" : "none",
           color: isDone
@@ -323,7 +323,7 @@ const TaskCard = ({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="bg-card border border-red-500/20 shadow-2xl sm:rounded-2xl max-w-sm">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-foreground">Delete &ldquo;{task.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogTitle className="ph-no-capture text-foreground">Delete &ldquo;{task.name}&rdquo;?</AlertDialogTitle>
             <AlertDialogDescription className="text-red-400/80">This will permanently delete the task and all its subtasks.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-4">
@@ -559,13 +559,13 @@ const Tasks = () => {
           task_status: string;
           total_subtasks: number;
           completed_subtasks: number;
-          priority?: string;
+          energy_level?: string;
           tags?: string[];
           notes?: string;
         }) => ({
           id: t.task_id,
           name: t.task_name,
-          priority: (t.priority?.toLowerCase() ?? "low") as "high" | "low",
+          priority: (t.energy_level?.toLowerCase() ?? "low") as "high" | "low",
           tags: t.tags ?? [],
           notes: t.notes,
           column: t.task_status === "Ready" ? "todo" : t.task_status.toLowerCase(),
@@ -650,15 +650,22 @@ const Tasks = () => {
       const backendStatus = editTask.column === "todo" ? "Ready"
         : editTask.column.charAt(0).toUpperCase() + editTask.column.slice(1);
       try {
-        await fetch(`/api/tasks/${editTask.id}`, {
+        const res = await fetch(`/api/tasks/${editTask.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             task_name: editTask.name.trim(),
             task_status: backendStatus,
+            energy_level: editTask.priority === "high" ? "High" : "Low",
             notes: editTask.notes || null,
           }),
         });
+        if (!res.ok) {
+          toast.error("Failed to update task");
+          fetchTasks();
+          return;
+        }
         setTasks(prev => prev.map(t =>
           t.id === editTask.id
             ? { ...t, name: editTask.name, priority: editTask.priority, tags: editTask.tags, notes: editTask.notes }
@@ -708,7 +715,8 @@ const Tasks = () => {
       await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_name: name, task_status: backendStatus }),
+        credentials: "include",
+        body: JSON.stringify({ task_name: name, task_status: backendStatus, energy_level: "Low" }),
       });
       fetchTasks();
     } catch {

@@ -8,6 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const express = require("express");
 const Sentry = require("@sentry/node");
+const posthog = require("./posthog");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -47,7 +48,18 @@ app.set("trust proxy", 1);
 
 // ─── Middleware ──────────────────────────────────────────────
 // CSP disabled so Vite/React assets and OAuth flows work without per-hash config
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: false,
+  // Chrome strictly enforces no-referrer (Helmet's default), which strips the
+  // Referer header on YouTube iframe loads and causes error 150/101 for
+  // domain-restricted playlists. strict-origin-when-cross-origin sends the
+  // origin so YouTube can identify the embedding site, matching the browser default.
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+}));
+// PostHog session replay fetches /assets/* cross-origin to render CSS — allow it.
+// Must come before the credentialed CORS middleware so the * header is set first;
+// the second middleware won't override it for origins not in getTrustedOrigins().
+app.use("/assets", cors({ origin: "*" }));
 app.use(cors({
   origin: getTrustedOrigins(),
   credentials: true,
@@ -64,19 +76,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Vends a CSRF token to the client on app load; stored and auto-injected as
+// x-csrf-token header by lib/installCsrfFetch.ts on every mutating request.
 app.get("/api/csrf-token", (req, res) => {
   const token = generateCsrfToken(req, res);
   res.status(200).json({ csrfToken: token });
 });
+// Global double-submit CSRF protection — every POST/PATCH/DELETE mounted after
+// this line requires a valid x-csrf-token header that matches the CSRF cookie.
 app.use(doubleCsrfProtection);
 
 // ─── App consent endpoint (must run before Better Auth catch-all) ───────────
 // FR-L-03 / dissertation spec: POST /api/auth/consent — JSON body, session cookie auth.
+// Mounted before the Better Auth wildcard so Express handles it, not Better Auth.
 app.post(
   "/api/auth/consent",
-  consentWriteLimiter,
-  express.json(),
-  authMiddleware,
+  consentWriteLimiter, // stricter rate limit (30 req/min) — consent writes are sensitive
+  express.json(),      // body parsing declared here because Better Auth needs raw body above
+  authMiddleware,      // validates session cookie → populates req.user
   recordInitialConsent
 );
 
@@ -211,6 +228,7 @@ Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  posthog.captureException(err, req.user?.user_id ? String(req.user.user_id) : undefined);
   res.status(500).json({ error: "Internal server error" });
 });
 

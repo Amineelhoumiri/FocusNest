@@ -12,6 +12,7 @@ const {
     hashRefreshToken,
     verifyAccessToken,
 } = require("../services/token.service");
+const posthog = require("../posthog");
 
 // Centralises cookie configuration so it's consistent across register and login
 const setTokenCookies = (res, accessToken, refreshToken) => {
@@ -123,6 +124,19 @@ const register = async (req, res) => {
         // Set HttpOnly cookies
         setTokenCookies(res, accessToken, refreshToken);
 
+        posthog.identify({
+            distinctId: String(user.user_id),
+            properties: {
+                $set: { name: full_name },
+                $set_once: { registered_at: new Date().toISOString() },
+            },
+        });
+        posthog.capture({
+            distinctId: String(user.user_id),
+            event: "user_registered",
+            properties: { is_admin: user.is_admin },
+        });
+
         // Return response (no tokens in body)
         return res.status(201).json({
             user_id: user.user_id,
@@ -130,6 +144,7 @@ const register = async (req, res) => {
 
     } catch (err) {
         console.error("Register error:", err.message);
+        posthog.captureException(err);
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Registration failed.",
@@ -214,6 +229,18 @@ const login = async (req, res) => {
         // Set HttpOnly cookies
         setTokenCookies(res, accessToken, refreshToken);
 
+        posthog.identify({
+            distinctId: String(account.user_id),
+            properties: {
+                $set: { last_login_at: new Date().toISOString() },
+            },
+        });
+        posthog.capture({
+            distinctId: String(account.user_id),
+            event: "user_logged_in",
+            properties: { is_admin: account.is_admin },
+        });
+
         // Return response
         return res.status(200).json({
             user_id: account.user_id,
@@ -222,6 +249,7 @@ const login = async (req, res) => {
 
     } catch (err) {
         console.error("Login error:", err.message);
+        posthog.captureException(err);
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Login failed.",
@@ -314,10 +342,18 @@ const logout = async (req, res) => {
         res.clearCookie("access_token");
         res.clearCookie("refresh_token");
 
+        if (req.user?.user_id) {
+            posthog.capture({
+                distinctId: String(req.user.user_id),
+                event: "user_logged_out",
+            });
+        }
+
         return res.status(204).send();
 
     } catch (err) {
         console.error("Logout error:", err.message);
+        posthog.captureException(err);
         return res.status(500).json({
             error: "INTERNAL_SERVER_ERROR",
             message: "Logout failed.",
