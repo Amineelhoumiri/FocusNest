@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FocusNest — Design Mockup</title>
+<style>
+  :root {
+    --bg: #0e0f1a;
+    --surface: #161728;
+    --surface2: #1e2038;
+    --border: #2a2d4a;
+    --purple: #7c3aed;
+    --purple-light: #9d5ff3;
+    --purple-glow: rgba(124,58,237,0.3);
+    --text: #e2e4f0;
+    --muted: #6b7280;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --sidebar-w: 64px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  /* ── NAV TABS ── */
+  #tabs {
+    position: fixed; top: 0; left: 0; right: 0; height: 44px;
+    background: #0a0b14; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 4px; padding: 0 12px; z-index: 100;
+  }
+  #tabs span { font-size: 10px; color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .tab {
+    padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+    cursor: pointer; color: var(--muted); transition: all .15s; border: 1px solid transparent;
+  }
+  .tab:hover { color: var(--text); background: var(--surface); }
+  .tab.active { color: #fff; background: var(--purple); border-color: var(--purple); }
+
+  /* ── SCREENS ── */
+  .screen { display: none; position: fixed; top: 44px; left: 0; right: 0; bottom: 0; overflow-y: auto; }
+  .screen.active { display: flex; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--surface);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    align-items: center; padding: 16px 0; gap: 4px;
+  }
+  .sidebar .logo { width: 36px; height: 36px; background: var(--purple); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 16px; }
+  .nav-item {
+    width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 18px; cursor: pointer; transition: all .15s; color: var(--muted);
+  }
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: var(--purple-glow); color: var(--purple-light); }
+  .sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+  /* ── MAIN CONTENT ── */
+  .main { flex: 1; padding: 28px 32px; overflow-y: auto; }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+  }
+  .card-sm { border-radius: 10px; padding: 16px; }
+
+  /* ── DASHBOARD ── */
+  .dash-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .stat-card { text-align: center; }
+  .stat-num { font-size: 32px; font-weight: 700; color: #fff; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .score-ring { position: relative; width: 140px; height: 140px; margin: 0 auto 12px; }
+  .score-ring svg { width: 140px; height: 140px; transform: rotate(-90deg); }
+  .score-ring circle { fill: none; stroke-width: 10; }
+  .ring-bg { stroke: var(--border); }
+  .ring-fg { stroke: var(--purple); stroke-linecap: round; stroke-dasharray: 339; stroke-dashoffset: 95; }
+  .score-val {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    font-size: 36px; font-weight: 800; color: #fff;
+  }
+  .score-label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+
+  .active-banner {
+    background: linear-gradient(135deg, #1a1040 0%, #1e1650 100%);
+    border: 1px solid var(--purple); border-radius: 14px; padding: 20px;
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+  }
+  .active-banner .label { font-size: 11px; color: var(--purple-light); font-weight: 600; text-transform: uppercase; letter-spacing:.05em; }
+  .active-banner .task-name { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .active-banner .progress-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .progress-bar-wrap { height: 6px; background: var(--border); border-radius: 99px; width: 180px; }
+  .progress-bar { height: 100%; background: var(--purple); border-radius: 99px; width: 60%; }
+
+  .btn {
+    background: var(--purple); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--purple-light); }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { background: var(--surface2); }
+  .btn-danger { background: rgba(239,68,68,.15); border: 1px solid var(--red); color: var(--red); }
+
+  .chart-bars { display: flex; align-items: flex-end; gap: 8px; height: 80px; }
+  .bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+  .bar { background: var(--purple); border-radius: 4px 4px 0 0; width: 100%; opacity: .7; transition: opacity .15s; }
+  .bar:hover { opacity: 1; }
+  .bar-label { font-size: 10px; color: var(--muted); }
+
+  /* ── KANBAN ── */
+  .kanban { display: flex; gap: 16px; align-items: flex-start; }
+  .col { flex: 1; min-width: 200px; }
+  .col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .col-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing:.05em; }
+  .col-count { font-size: 11px; background: var(--surface2); color: var(--muted); padding: 2px 7px; border-radius: 99px; }
+  .col-doing .col-header .col-title { color: var(--purple-light); }
+  .col-doing .task-card { border-color: var(--purple); box-shadow: 0 0 12px var(--purple-glow); }
+
+  .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; margin-bottom: 8px; cursor: grab; }
+  .task-card:hover { border-color: var(--purple); }
+  .task-card .t-name { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 99px; }
+  .badge-high { background: rgba(239,68,68,.15); color: var(--red); }
+  .badge-med { background: rgba(245,158,11,.15); color: var(--amber); }
+  .badge-low { background: rgba(34,197,94,.15); color: var(--green); }
+  .sub-progress { margin-top: 8px; }
+  .sub-progress-label { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+  .sub-progress-bar { height: 4px; background: var(--border); border-radius: 99px; }
+  .sub-progress-fill { height: 100%; background: var(--purple); border-radius: 99px; }
+
+  .add-col-btn { width: 100%; background: transparent; border: 1px dashed var(--border); border-radius: 10px;
+    padding: 10px; color: var(--muted); font-size: 12px; cursor: pointer; transition: all .15s; }
+  .add-col-btn:hover { border-color: var(--purple); color: var(--purple-light); }
+
+  /* ── SESSION ── */
+  .session-screen {
+    background: radial-gradient(ellipse at 50% 30%, rgba(124,58,237,.18) 0%, #0a0b14 65%);
+    flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  }
+  .timer-ring { position: relative; width: 240px; height: 240px; margin-bottom: 24px; }
+  .timer-ring svg { width: 240px; height: 240px; transform: rotate(-90deg); }
+  .timer-ring circle { fill: none; stroke-width: 8; }
+  .timer-ring .ring-bg { stroke: var(--border); }
+  .timer-ring .ring-fg { stroke: url(#grad); stroke-linecap: round; stroke-dasharray: 706; stroke-dashoffset: 283; }
+  .timer-val {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    text-align: center;
+  }
+  .timer-val .time { font-size: 52px; font-weight: 800; letter-spacing: -2px; }
+  .timer-val .time-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .session-task { text-align: center; margin-bottom: 24px; }
+  .session-task .task-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing:.05em; }
+  .session-task .task-name { font-size: 20px; font-weight: 700; margin-top: 4px; }
+
+  .subtask-list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; width: 380px; margin-bottom: 32px; }
+  .subtask-list .sub-title { font-size: 11px; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing:.05em; }
+  .subtask-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; }
+  .subtask-item:not(:last-child) { border-bottom: 1px solid var(--border); }
+  .checkbox { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--border); display:flex; align-items:center;justify-content:center; font-size:10px; }
+  .checkbox.checked { background: var(--purple); border-color: var(--purple); }
+
+  .session-controls { display: flex; align-items: center; gap: 12px; }
+  .ctrl-btn {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 20px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text);
+    display: flex; align-items: center; gap: 8px; transition: all .15s;
+  }
+  .ctrl-btn:hover { border-color: var(--purple); background: var(--surface2); }
+  .ctrl-btn.pause { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .ctrl-btn.stuck { border-color: var(--amber); color: var(--amber); }
+  .ctrl-btn.stuck:hover { background: rgba(245,158,11,.1); }
+
+  .music-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 58px;
+    background: rgba(14,15,26,.95); border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 24px;
+    backdrop-filter: blur(10px);
+  }
+  .music-info { display: flex; align-items: center; gap: 12px; }
+  .album-art { width: 36px; height: 36px; border-radius: 6px; background: linear-gradient(135deg, var(--purple), #db2777); }
+  .music-meta .song { font-size: 12px; font-weight: 600; }
+  .music-meta .artist { font-size: 11px; color: var(--muted); }
+  .music-controls { display: flex; align-items: center; gap: 16px; font-size: 18px; cursor: pointer; }
+  .music-controls .play { width: 32px; height: 32px; background: var(--purple); border-radius: 50%; display:flex;align-items:center;justify-content:center;font-size:14px; }
+
+  /* ── SETTINGS ── */
+  .settings-layout { display: flex; gap: 24px; }
+  .settings-nav { width: 200px; min-width: 200px; }
+  .settings-nav-item { padding: 9px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .settings-nav-item:hover { background: var(--surface2); color: var(--text); }
+  .settings-nav-item.active { background: var(--purple-glow); color: var(--purple-light); }
+  .settings-content { flex: 1; }
+  .settings-section { margin-bottom: 28px; }
+  .settings-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .input {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; color: var(--text); font-size: 13px; outline: none;
+  }
+  .input:focus { border-color: var(--purple); }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; }
+  .toggle-row .t-info .t-name { font-size: 13px; font-weight: 500; }
+  .toggle-row .t-info .t-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .toggle { width: 40px; height: 22px; background: var(--border); border-radius: 99px; position: relative; cursor: pointer; transition: all .2s; }
+  .toggle.on { background: var(--purple); }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: all .2s; }
+  .toggle.on::after { left: 21px; }
+
+  /* ── PAGE HEADERS ── */
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .page-title { font-size: 24px; font-weight: 800; }
+  .page-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* ── SESSIONS HISTORY ── */
+  .session-row { display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0; border-bottom: 1px solid var(--border); }
+  .session-row:last-child { border-bottom: none; }
+  .s-task { font-size: 13px; font-weight: 600; }
+  .s-meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .s-duration { font-size: 14px; font-weight: 700; color: var(--purple-light); }
+  .mood-badge { font-size: 10px; padding: 3px 8px; border-radius: 99px; background: var(--surface2); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+</style>
+</head>
+<body>
+
+<!-- NAV TABS -->
+<div id="tabs">
+  <span>FocusNest Mockup</span>
+  <div class="tab active" onclick="show('dashboard', this)">Dashboard</div>
+  <div class="tab" onclick="show('tasks', this)">Tasks</div>
+  <div class="tab" onclick="show('session', this)">Active Session</div>
+  <div class="tab" onclick="show('sessions', this)">Session History</div>
+  <div class="tab" onclick="show('settings', this)">Settings</div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 1 — DASHBOARD
+═══════════════════════════════════════════ -->
+<div id="dashboard" class="screen active">
+  <div class="sidebar">
+    <div class="logo">🎯</div>
+    <div class="nav-item active" title="Dashboard">🏠</div>
+    <div class="nav-item" title="Tasks">📋</div>
+    <div class="nav-item" title="Sessions">⏱</div>
+    <div class="nav-item" title="Chat">💬</div>
+    <div class="nav-item" title="Spotify">🎵</div>
+    <div class="sidebar-bottom">
+      <div class="nav-item" title="Settings">⚙️</div>
+      <div class="nav-item" title="Profile" style="font-size:14px;background:var(--purple);color:#fff;border-radius:50%">AE</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Good morning, Amine 👋</div>
+        <div class="page-sub">Wednesday, April 30 · Here's your focus overview</div>
+      </div>
+      <button class="btn" onclick="show('session', document.querySelectorAll('.tab')[2])">+ Start Session</button>
+    </div>
+
+    <!-- Active task banner -->
+    <div class="active-banner">
+      <div>
+        <div class="label">⚡ Active Task</div>
+        <div class="task-name">Build authentication flow</div>
+        <div class="progress-row">
+          <div class="progress-bar-wrap"><div class="progress-bar"></div></div>
+          <span style="font-size:11px;color:var(--muted)">3 / 5 subtasks</span>
+        </div>
+      </div>
+      <button class="btn" onclick="show('session', document.querySelectorAll('.tab')[2])">▶ Resume Session</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="dash-grid" style="grid-template-columns: 220px 1fr 1fr 1fr;">
+      <!-- Focus Score -->
+      <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
+        <div class="score-ring">
+          <svg viewBox="0 0 140 140"><circle class="ring-bg" cx="70" cy="70" r="54"/><circle class="ring-fg" cx="70" cy="70" r="54"/></svg>
+          <div class="score-val">72</div>
+        </div>
+        <div style="font-size:13px;font-weight:600;text-align:center;">Focus Score</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">↑ +8 from last week</div>
+      </div>
+      <!-- Stat cards -->
+      <div class="card stat-card">
+        <div style="font-size:28px;margin-bottom:4px;">⏱</div>
+        <div class="stat-num">8</div>
+        <div class="stat-label">Sessions Completed</div>
+        <div style="font-size:11px;color:var(--green);margin-top:6px;">↑ 2 more than last week</div>
+      </div>
+      <div class="card stat-card">
+        <div style="font-size:28px;margin-bottom:4px;">✅</div>
+        <div class="stat-num">14</div>
+        <div class="stat-label">Tasks Done</div>
+        <div style="font-size:11px;color:var(--green);margin-top:6px;">↑ 5 more than last week</div>
+      </div>
+      <div class="card stat-card">
+        <div style="font-size:28px;margin-bottom:4px;">🔥</div>
+        <div class="stat-num">6h 32m</div>
+        <div class="stat-label">Total Focus Time</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:6px;">→ Same as last week</div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="card" style="margin-top:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="font-size:14px;font-weight:600;">Daily Focus Time</div>
+        <div style="font-size:11px;color:var(--muted)">Last 7 days</div>
+      </div>
+      <div class="chart-bars">
+        <div class="bar-wrap"><div class="bar" style="height:40%"></div><div class="bar-label">Mon</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:65%"></div><div class="bar-label">Tue</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:55%"></div><div class="bar-label">Wed</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:80%"></div><div class="bar-label">Thu</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:35%"></div><div class="bar-label">Fri</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:70%"></div><div class="bar-label">Sat</div></div>
+        <div class="bar-wrap"><div class="bar" style="height:90%;opacity:1;box-shadow:0 0 8px var(--purple-glow)"></div><div class="bar-label" style="color:var(--purple-light)">Today</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 2 — KANBAN TASKS
+═══════════════════════════════════════════ -->
+<div id="tasks" class="screen">
+  <div class="sidebar">
+    <div class="logo">🎯</div>
+    <div class="nav-item" title="Dashboard">🏠</div>
+    <div class="nav-item active" title="Tasks">📋</div>
+    <div class="nav-item" title="Sessions">⏱</div>
+    <div class="nav-item" title="Chat">💬</div>
+    <div class="nav-item" title="Spotify">🎵</div>
+    <div class="sidebar-bottom">
+      <div class="nav-item" title="Settings">⚙️</div>
+      <div class="nav-item" style="font-size:14px;background:var(--purple);color:#fff;border-radius:50%">AE</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Tasks</div>
+        <div class="page-sub">Drag tasks between columns to update status</div>
+      </div>
+      <button class="btn">+ Add Task</button>
+    </div>
+    <div class="kanban">
+      <!-- Backlog -->
+      <div class="col">
+        <div class="col-header">
+          <span class="col-title">Backlog</span>
+          <span class="col-count">4</span>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Design landing page v2</div>
+          <span class="badge badge-low">Low</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">0 / 3 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Set up CI/CD pipeline</div>
+          <span class="badge badge-med">Medium</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">0 / 5 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Write API documentation</div>
+          <span class="badge badge-low">Low</span>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Performance audit</div>
+          <span class="badge badge-low">Low</span>
+        </div>
+        <button class="add-col-btn">+ Add task</button>
+      </div>
+      <!-- To Do -->
+      <div class="col">
+        <div class="col-header">
+          <span class="col-title">To Do</span>
+          <span class="col-count">3</span>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Implement Stripe payments</div>
+          <span class="badge badge-high">High</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">1 / 4 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:25%"></div></div>
+          </div>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Email notification system</div>
+          <span class="badge badge-med">Medium</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">0 / 2 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Mobile responsiveness fixes</div>
+          <span class="badge badge-med">Medium</span>
+        </div>
+        <button class="add-col-btn">+ Add task</button>
+      </div>
+      <!-- Doing (1 task max) -->
+      <div class="col col-doing">
+        <div class="col-header">
+          <span class="col-title">Doing</span>
+          <span class="col-count" style="background:var(--purple-glow);color:var(--purple-light)">1 / 1</span>
+        </div>
+        <div class="task-card">
+          <div class="t-name">Build authentication flow</div>
+          <span class="badge badge-high">High</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">3 / 5 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:60%"></div></div>
+          </div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted)">⏱ 47m in session</div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);text-align:center;padding:8px;border:1px dashed var(--border);border-radius:8px;">
+          Only 1 active task allowed
+        </div>
+      </div>
+      <!-- Done -->
+      <div class="col">
+        <div class="col-header">
+          <span class="col-title">Done</span>
+          <span class="col-count">6</span>
+        </div>
+        <div class="task-card" style="opacity:.6">
+          <div class="t-name" style="text-decoration:line-through">Set up database schema</div>
+          <span class="badge badge-high">High</span>
+        </div>
+        <div class="task-card" style="opacity:.6">
+          <div class="t-name" style="text-decoration:line-through">User registration & login</div>
+          <span class="badge badge-high">High</span>
+          <div class="sub-progress">
+            <div class="sub-progress-label">4 / 4 subtasks</div>
+            <div class="sub-progress-bar"><div class="sub-progress-fill" style="width:100%;background:var(--green)"></div></div>
+          </div>
+        </div>
+        <div class="task-card" style="opacity:.6">
+          <div class="t-name" style="text-decoration:line-through">Dashboard UI skeleton</div>
+          <span class="badge badge-med">Medium</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 3 — ACTIVE SESSION
+═══════════════════════════════════════════ -->
+<div id="session" class="screen session-screen" style="flex-direction:column;align-items:center;justify-content:center;padding-bottom:58px;">
+  <svg style="position:absolute;width:0;height:0">
+    <defs>
+      <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#7c3aed"/>
+        <stop offset="100%" stop-color="#db2777"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <!-- Zen mode toggle top right -->
+  <div style="position:absolute;top:16px;right:16px;display:flex;align-items:center;gap:8px;">
+    <span style="font-size:11px;color:var(--muted)">Zen Mode</span>
+    <div class="toggle" onclick="this.classList.toggle('on')"></div>
+  </div>
+
+  <div class="timer-ring">
+    <svg viewBox="0 0 240 240">
+      <circle class="ring-bg" cx="120" cy="120" r="108"/>
+      <circle class="ring-fg" cx="120" cy="120" r="108"/>
+    </svg>
+    <div class="timer-val">
+      <div class="time">47:23</div>
+      <div class="time-label">remaining</div>
+    </div>
+  </div>
+
+  <div class="session-task">
+    <div class="task-label">Current Task</div>
+    <div class="task-name">Build authentication flow</div>
+  </div>
+
+  <div class="subtask-list">
+    <div class="sub-title">Subtasks</div>
+    <div class="subtask-item">
+      <div class="checkbox checked">✓</div>
+      <span style="text-decoration:line-through;color:var(--muted)">Set up Better Auth</span>
+    </div>
+    <div class="subtask-item">
+      <div class="checkbox checked">✓</div>
+      <span style="text-decoration:line-through;color:var(--muted)">Email/password login</span>
+    </div>
+    <div class="subtask-item">
+      <div class="checkbox checked">✓</div>
+      <span style="text-decoration:line-through;color:var(--muted)">Google OAuth flow</span>
+    </div>
+    <div class="subtask-item">
+      <div class="checkbox"></div>
+      <span>Session middleware</span>
+    </div>
+    <div class="subtask-item">
+      <div class="checkbox"></div>
+      <span>CSRF protection</span>
+    </div>
+  </div>
+
+  <div class="session-controls">
+    <div class="ctrl-btn" onclick="this.textContent=this.textContent.includes('Pause')?'▶  Resume':'⏸  Pause'; ">⏸&nbsp; Pause</div>
+    <div class="ctrl-btn stuck">😰&nbsp; I'm Stuck</div>
+    <div class="ctrl-btn btn-danger" style="background:rgba(239,68,68,.1);border-color:var(--red);color:var(--red)">⏹&nbsp; End Session</div>
+  </div>
+
+  <!-- Music bar -->
+  <div class="music-bar">
+    <div class="music-info">
+      <div class="album-art"></div>
+      <div class="music-meta">
+        <div class="song">Midnight City</div>
+        <div class="artist">M83 · YouTube Music</div>
+      </div>
+    </div>
+    <div class="music-controls">
+      <span>⏮</span>
+      <div class="play">▶</div>
+      <span>⏭</span>
+      <span style="margin-left:8px;font-size:14px;">🔊</span>
+    </div>
+    <div style="font-size:12px;color:var(--muted)">🎵 Focus playlist · 12 tracks</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 4 — SESSION HISTORY
+═══════════════════════════════════════════ -->
+<div id="sessions" class="screen">
+  <div class="sidebar">
+    <div class="logo">🎯</div>
+    <div class="nav-item" title="Dashboard">🏠</div>
+    <div class="nav-item" title="Tasks">📋</div>
+    <div class="nav-item active" title="Sessions">⏱</div>
+    <div class="nav-item" title="Chat">💬</div>
+    <div class="nav-item" title="Spotify">🎵</div>
+    <div class="sidebar-bottom">
+      <div class="nav-item" title="Settings">⚙️</div>
+      <div class="nav-item" style="font-size:14px;background:var(--purple);color:#fff;border-radius:50%">AE</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Session History</div>
+        <div class="page-sub">Your past focus sessions and reflections</div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:16px;margin-bottom:20px;">
+        <button class="btn" style="font-size:12px;padding:7px 14px;">All</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px;">This week</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:7px 14px;">This month</button>
+      </div>
+      <div class="session-row">
+        <div>
+          <div class="s-task">Build authentication flow</div>
+          <div class="s-meta">Today · 9:00 AM → 9:50 AM</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted);font-style:italic">"Good session, got the OAuth flow working. Got distracted by Twitter for ~5min."</div>
+        </div>
+        <div style="text-align:right">
+          <div class="s-duration">50 min</div>
+          <div class="mood-badge" style="margin-top:6px;">😊 Focused</div>
+        </div>
+      </div>
+      <div class="session-row">
+        <div>
+          <div class="s-task">Implement Stripe payments</div>
+          <div class="s-meta">Yesterday · 2:30 PM → 3:15 PM</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted);font-style:italic">"Ran into Stripe webhook issues. Switched task after 20min."</div>
+        </div>
+        <div style="text-align:right">
+          <div class="s-duration">45 min</div>
+          <div class="mood-badge" style="margin-top:6px;">😰 Stuck</div>
+        </div>
+      </div>
+      <div class="session-row">
+        <div>
+          <div class="s-task">Dashboard UI skeleton</div>
+          <div class="s-meta">Yesterday · 10:00 AM → 11:05 AM</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted);font-style:italic">"Super productive, got into flow state early. Completed all subtasks."</div>
+        </div>
+        <div style="text-align:right">
+          <div class="s-duration">1h 5m</div>
+          <div class="mood-badge" style="margin-top:6px;">🔥 Flow</div>
+        </div>
+      </div>
+      <div class="session-row">
+        <div>
+          <div class="s-task">User registration & login</div>
+          <div class="s-meta">Apr 28 · 3:00 PM → 3:55 PM</div>
+        </div>
+        <div style="text-align:right">
+          <div class="s-duration">55 min</div>
+          <div class="mood-badge" style="margin-top:6px;">😊 Focused</div>
+        </div>
+      </div>
+      <div class="session-row">
+        <div>
+          <div class="s-task">Set up database schema</div>
+          <div class="s-meta">Apr 27 · 11:00 AM → 11:45 AM</div>
+          <div style="margin-top:6px;font-size:11px;color:var(--muted);font-style:italic">"Low energy today, but pushed through."</div>
+        </div>
+        <div style="text-align:right">
+          <div class="s-duration">45 min</div>
+          <div class="mood-badge" style="margin-top:6px;">😴 Low Energy</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 5 — SETTINGS
+═══════════════════════════════════════════ -->
+<div id="settings" class="screen">
+  <div class="sidebar">
+    <div class="logo">🎯</div>
+    <div class="nav-item" title="Dashboard">🏠</div>
+    <div class="nav-item" title="Tasks">📋</div>
+    <div class="nav-item" title="Sessions">⏱</div>
+    <div class="nav-item" title="Chat">💬</div>
+    <div class="nav-item" title="Spotify">🎵</div>
+    <div class="sidebar-bottom">
+      <div class="nav-item active" title="Settings">⚙️</div>
+      <div class="nav-item" style="font-size:14px;background:var(--purple);color:#fff;border-radius:50%">AE</div>
+    </div>
+  </div>
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Settings</div>
+        <div class="page-sub">Manage your account and preferences</div>
+      </div>
+    </div>
+    <div class="settings-layout">
+      <div class="settings-nav card card-sm" style="height:fit-content;">
+        <div class="settings-nav-item active">Profile</div>
+        <div class="settings-nav-item">Password</div>
+        <div class="settings-nav-item">Privacy & Consent</div>
+        <div class="settings-nav-item">Notifications</div>
+        <div class="settings-nav-item" style="color:var(--red);margin-top:8px;">Danger Zone</div>
+      </div>
+      <div class="settings-content">
+        <div class="settings-section card">
+          <h3>Profile</h3>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+            <div style="width:64px;height:64px;border-radius:50%;background:var(--purple);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700">AE</div>
+            <div>
+              <div style="font-size:13px;font-weight:600">Amine Elhoumiri</div>
+              <div style="font-size:11px;color:var(--muted)">medamineelhoumiri@gmail.com</div>
+              <button class="btn btn-ghost" style="font-size:11px;padding:5px 10px;margin-top:6px;">Change photo</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Full Name</label>
+            <input class="input" value="Amine Elhoumiri" />
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input class="input" value="medamineelhoumiri@gmail.com" />
+          </div>
+          <button class="btn" style="margin-top:4px;">Save Changes</button>
+        </div>
+
+        <div class="settings-section card" style="margin-top:16px;">
+          <h3>Privacy & Consent</h3>
+          <div class="toggle-row">
+            <div class="t-info">
+              <div class="t-name">Analytics (PostHog)</div>
+              <div class="t-desc">Help us improve FocusNest with anonymized usage data</div>
+            </div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="toggle-row">
+            <div class="t-info">
+              <div class="t-name">Session Recordings</div>
+              <div class="t-desc">Anonymous screen recordings for UX research (inputs masked)</div>
+            </div>
+            <div class="toggle" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div class="toggle-row">
+            <div class="t-info">
+              <div class="t-name">AI Chat History</div>
+              <div class="t-desc">Allow AI to use past sessions to personalize advice</div>
+            </div>
+            <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:10px;">
+            <button class="btn btn-ghost" style="font-size:12px;">Export My Data</button>
+            <button class="btn btn-danger" style="font-size:12px;padding:9px 16px;">Delete Account</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function show(id, tab) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (tab) tab.classList.add('active');
+}
+</script>
+</body>
+</html>
