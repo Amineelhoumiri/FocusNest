@@ -16,7 +16,7 @@
     "@aws-sdk/client-kms": "^3.1000.0",
     "@sentry/node": "^10.38.0",
     "bcrypt": "^6.0.0",
-    "better-auth": "^1.5.5",
+    "better-auth": "^1.6.9",
     "cookie": "^1.1.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
